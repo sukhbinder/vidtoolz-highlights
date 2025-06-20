@@ -1,0 +1,34 @@
+[project]
+name = "vidtoolz-highlights"
+version = "0.1.0"
+description = "Make highlights from videos"
+readme = "README.md"
+authors = [{name = "Sukhbinder Singh"}]
+license = {text = "Apache-2.0"}
+classifiers = [
+    "License :: OSI Approved :: Apache Software License"
+]
+dependencies = [
+    "vidtoolz",
+    "vidtoolz-beats"
+]
+
+[project.urls]
+Homepage = "https://github.com/sukhbinder/vidtoolz-highlights"
+Changelog = "https://github.com/sukhbinder/vidtoolz-highlights/releases"
+Issues = "https://github.com/sukhbinder/vidtoolz-highlights/issues"
+CI = "https://github.com/sukhbinder/vidtoolz-highlights/actions"
+
+[project.entry-points."vidtoolz_plugins"]
+highlights = "vidtoolz_highlights:highlights_plugin"
+
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
