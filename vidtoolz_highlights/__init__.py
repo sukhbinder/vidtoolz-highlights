@@ -556,6 +556,55 @@ def trim_and_get_outfiles_for_coninous(subclips, slow=0.1):
     return outfiles
 
 
+def create_video_using_subclips_json(subclips, out_name=None):
+    # Load JSON data from file
+    with open(subclips, "r") as f:
+        data = json.load(f)
+
+    vdir = os.path.dirname(os.path.abspath(subclips))
+
+    # Extract top-level parameters
+    args = data["args"]
+    subclips = data["subclips"]
+
+    # Unpack args
+    audfile = args.get("audfile")
+    startat = args.get("startat", 0.0)
+    fps = args.get("fps", 30)
+    fadeout = args.get("fadeout", 0)
+    afadeout = args.get("afadeout", 0)
+    vtype = args.get("vtype", "L")
+    prefix = args.get("prefix", "IMG")
+    threshold = args.get("threshold", 0.3)
+    howmany = args.get("howmany", 5)
+
+    out_name = os.path.join(
+        vdir,
+        f"{prefix}_{Path(audfile).stem[:10]}_{vtype}_stitch_t_{threshold}_hm_{howmany}.mp4",
+    )
+
+    cwd = os.getcwd()
+    _, new_audio = beats_clip(audfile, startat)
+    with tempfile.TemporaryDirectory(prefix="stitch") as tempdir:
+        os.chdir(tempdir)
+
+        trimmed = trim_and_get_outfiles_for_coninous(subclips)
+        make_video(trimmed, "combined_withffmpeg.mp4")
+
+        final_clip = mpy.VideoFileClip("combined_withffmpeg.mp4")
+
+        generate_video_hl(
+            [],
+            new_audio,
+            out_name,
+            fps=fps,
+            fadeout=fadeout,
+            afadeout=afadeout,
+            clip=final_clip,
+        )
+    os.chdir(cwd)
+
+
 class ViztoolzPluginStitch:
     """Stitch videos with music"""
 
@@ -570,10 +619,6 @@ class ViztoolzPluginStitch:
         audfile = args.audfile
         startat = args.startat
         threshold = args.threshold
-        fps = args.fps
-        fadeout = args.fadeout
-        afadeout = args.afadeout
-        prefix = args.prefix
         howmany = args.howmany
 
         # 1. Read inputs
@@ -586,8 +631,6 @@ class ViztoolzPluginStitch:
         times = extract_beat_times(beats, threshold)
         durations = compute_segment_durations(times)
 
-        _, new_audio = beats_clip(audfile, startat)
-
         # 3. Select clips
         subclips = generate_video_cuts(vdursd, durations, howmany)
 
@@ -597,30 +640,7 @@ class ViztoolzPluginStitch:
         json_file = os.path.join(vdir, "stitch.json")
         write_subclips_json(json_file, {"args": argsdict, "subclips": subclips})
         vtype = "linear"
-        cwd = os.getcwd()
-        with tempfile.TemporaryDirectory(prefix="stitch") as tempdir:
-            os.chdir(tempdir)
-
-            trimmed = trim_and_get_outfiles_for_coninous(subclips)
-            make_video(trimmed, "combined_withffmpeg.mp4")
-
-            final_clip = mpy.VideoFileClip("combined_withffmpeg.mp4")
-
-            out_name = os.path.join(
-                vdir,
-                f"{prefix}_{Path(audfile).stem[:10]}_{vtype}_stitch_t_{threshold}_hm_{howmany}.mp4",
-            )
-
-            generate_video_hl(
-                [],
-                new_audio,
-                out_name,
-                fps=fps,
-                fadeout=fadeout,
-                afadeout=afadeout,
-                clip=final_clip,
-            )
-        os.chdir(cwd)
+        create_video_using_subclips_json(json_file)
 
     def hello(self, args):
         # this routine will be called when "vidtoolz "highlights is called."
