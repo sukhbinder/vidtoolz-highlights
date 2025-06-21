@@ -1,7 +1,7 @@
 [project]
 name = "vidtoolz-highlights"
 version = "0.1.0"
-description = "Make highlights from videos"
+description = "Make highlights from videos and Stitch videos to a song"
 readme = "README.md"
 authors = [{name = "Sukhbinder Singh"}]
 license = {text = "Apache-2.0"}
