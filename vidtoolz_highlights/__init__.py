@@ -11,10 +11,82 @@ from pathlib import Path
 import json
 import copy
 
+import random
+from typing import Dict, List, Tuple
+from itertools import cycle
+from random import choices
+
 
 def write_subclips_json(fname, subclips):
     with open(fname, "w") as fout:
         json.dump(subclips, fout, indent=4)
+
+
+def create_parser2(subparser):
+    parser = subparser.add_parser("stitch", description="Stitch videos using music")
+
+    parser.add_argument("filename", type=str, help="File containing the list of files")
+    parser.add_argument(
+        "-t",
+        "--threshold",
+        type=float,
+        help="Beats amplitude (default: %(default)s)",
+        default=0.3,
+    )
+
+    parser.add_argument(
+        "-p",
+        "--prefix",
+        type=str,
+        help="Filename Prefix (default: %(default)s)",
+        default="IMG",
+    )
+
+    parser.add_argument(
+        "-fps", "--fps", type=int, help="Video FPS (default: %(default)s)", default=60
+    )
+    parser.add_argument(
+        "-foout",
+        "--fadeout",
+        type=float,
+        help="Video fadeout (default: %(default)s)",
+        default=0,
+    )
+    parser.add_argument(
+        "-af",
+        "--afadeout",
+        type=float,
+        help="Audio FPS (default: %(default)s)",
+        default=2.0,
+    )
+    parser.add_argument(
+        "-d", "--debug", help="Debug this (default: %(default)s)", action="store_true"
+    )
+
+    parser.add_argument(
+        "-aaf",
+        "--audfile",
+        type=str,
+        help="mp3 Audio file (default: %(default)s)",
+        default=None,
+    )
+    parser.add_argument(
+        "-st",
+        "--startat",
+        type=float,
+        help="Audio startat (default: %(default)s)",
+        default=0.0,
+    )
+
+    parser.add_argument(
+        "-hm",
+        "--howmany",
+        type=int,
+        help="How many clips to take (default: %(default)s)",
+        default=15,
+    )
+
+    return parser
 
 
 def create_parser(subparser):
@@ -179,7 +251,6 @@ def get_non_linear_subclips_VDURS(mov, vdurs, dur, time):
 
 def get_linear_subclips(mov, vdurs, dur, ntime):
     subclips = []
-    # speeds = np.random.randint(2, size=ntime)
     cc = cycle(mov)
     nd = cycle(dur)
     for i in range(ntime - 1):
@@ -244,7 +315,7 @@ def trim_and_get_outfiles(sc):
     outfiles = []
     for i, clip in enumerate(sc):
         fn, st, et, speed = clip
-        # ROund to two decimal place.
+        # Round to four decimal place.
         st, et = np.round(st, 4), np.round(et, 4)
         fna = os.path.basename(fn)
         fna, ext = os.path.splitext(fna)
@@ -417,4 +488,144 @@ class ViztoolzPlugin:
         print("Hello! This is an example ``vidtoolz`` plugin.")
 
 
+def generate_video_cuts(
+    video_dict: Dict[str, float],
+    intervals: List[float],
+    max_cuts: int,
+    min_gap: float = 0.5,
+    max_gap: float = 1.0,
+) -> Dict[str, List[Tuple[float, float]]]:
+
+    result = {}
+
+    for video_path, duration in video_dict.items():
+        cuts = []
+        current_time = 0.0
+        interval_iter = cycle(intervals)
+
+        for _ in range(max_cuts):
+            gap = random.uniform(min_gap, max_gap)
+            start = current_time + gap
+
+            if start >= duration:
+                break  # no space even to start the next cut
+
+            interval = next(interval_iter)
+            end = start + interval
+
+            if end > duration:
+                end = duration  # truncate the last cut
+
+            cuts.append((start, end))
+            current_time = end
+
+        result[video_path] = cuts
+
+    return result
+
+
+def trim_and_get_outfiles_for_coninous(subclips, slow=0.1):
+    inum = 1
+    outfiles = []
+    for item, val in subclips.items():
+        fname = os.path.splitext(os.path.basename(item))[0]
+        if len(val) == 0:
+            dur = get_length(item)
+            st = 0.0
+            et = st + dur
+            outfile = "{0}_output_{1}_s.mp4".format(inum, fname)
+            trim_by_ffmpeg(item, st, et, outfile, dur)
+            if os.path.exists(outfile):
+                outfiles.append(outfile)
+                inum = inum + 1
+        for st, et in val:
+            # round the time to 2 decimal place.
+            st, et = np.round(st, 2), np.round(et, 2)
+            dur = et - st
+            if dur > 5.0:
+                outfile = "{0}_output_{1}.mp4".format(inum, fname)
+            else:
+                if choices([0, 1], weights=[1 - slow, slow]):
+                    outfile = "{0}_output_{1}_s.mp4".format(inum, fname)
+                else:
+                    outfile = "{0}_output_{1}.mp4".format(inum, fname)
+            trim_by_ffmpeg(item, st, et, outfile, dur)
+            if os.path.exists(outfile):
+                outfiles.append(outfile)
+                inum = inum + 1
+    return outfiles
+
+
+class ViztoolzPluginStitch:
+    """Stitch videos with music"""
+
+    __name__ = "stitch"
+
+    @vidtoolz.hookimpl
+    def register_commands(self, subparser):
+        self.parser = create_parser2(subparser)
+        self.parser.set_defaults(func=self.run)
+
+    def run(self, args):
+        audfile = args.audfile
+        startat = args.startat
+        threshold = args.threshold
+        fps = args.fps
+        fadeout = args.fadeout
+        afadeout = args.afadeout
+        prefix = args.prefix
+        howmany = args.howmany
+
+        # 1. Read inputs
+        mov = read_orderfile(args.filename)
+        vdir = os.path.dirname(os.path.abspath(args.filename))
+        vdursd = {f: get_length(f) for f in mov}
+
+        # 2. Analyze audio
+        beats = detect_beats(audfile, startat)
+        times = extract_beat_times(beats, threshold)
+        durations = compute_segment_durations(times)
+
+        _, new_audio = beats_clip(audfile, startat)
+
+        # 3. Select clips
+        subclips = generate_video_cuts(vdursd, durations, howmany)
+
+        # save json
+        argsdict = copy.copy(args.__dict__)
+        del argsdict["func"]
+        json_file = os.path.join(vdir, "stitch.json")
+        write_subclips_json(json_file, {"args": argsdict, "subclips": subclips})
+        vtype = "linear"
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory(prefix="stitch") as tempdir:
+            os.chdir(tempdir)
+
+            trimmed = trim_and_get_outfiles_for_coninous(subclips)
+            make_video(trimmed, "combined_withffmpeg.mp4")
+
+            final_clip = mpy.VideoFileClip("combined_withffmpeg.mp4")
+
+            out_name = os.path.join(
+                vdir,
+                f"{prefix}_{Path(audfile).stem[:10]}_{vtype}_stitch_t_{threshold}_hm_{howmany}.mp4",
+            )
+
+            generate_video_hl(
+                [],
+                new_audio,
+                out_name,
+                fps=fps,
+                fadeout=fadeout,
+                afadeout=afadeout,
+                clip=final_clip,
+            )
+        os.chdir(cwd)
+
+    def hello(self, args):
+        # this routine will be called when "vidtoolz "highlights is called."
+        print("Hello! This is an example ``vidtoolz`` plugin.")
+
+
 highlights_plugin = ViztoolzPlugin()
+stitch_plugin = ViztoolzPluginStitch()

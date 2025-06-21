@@ -21,6 +21,7 @@ CI = "https://github.com/sukhbinder/vidtoolz-highlights/actions"
 
 [project.entry-points."vidtoolz_plugins"]
 highlights = "vidtoolz_highlights:highlights_plugin"
+stitch = "vidtoolz_highlights:stitch_plugin"
 
 
 [project.optional-dependencies]
