@@ -73,14 +73,16 @@ def test_create_parser_required_and_defaults(subparsers):
 
     assert args.filename == "myfile.txt"
     assert args.clip_time is None
-    assert args.threshold == 0.3
-    assert args.vtype == "L"
+    assert args.threshold == -0.1
+    assert args.vtype == "NL"
     assert args.prefix == "IMG"
     assert args.fps == 60
     assert args.fadeout == 1.0
     assert args.afadeout == 2.0
     assert args.audfile is None
     assert args.startat == 0.0
+    assert args.skipheader == 0
+    assert args.skipfooter == 0
 
 
 def test_create_parser_with_all_args(subparsers):

@@ -107,7 +107,7 @@ def create_parser(subparser):
         "--threshold",
         type=float,
         help="Clip Time (default: %(default)s)",
-        default=0.3,
+        default=-0.1,
     )
     parser.add_argument(
         "-vt",
@@ -115,7 +115,7 @@ def create_parser(subparser):
         type=str,
         help="Vtype Linear or Non Linear (default: %(default)s)",
         choices=["L", "NL"],
-        default="L",
+        default="NL",
     )
     parser.add_argument(
         "-p",
@@ -158,14 +158,34 @@ def create_parser(subparser):
         help="Audio startat (default: %(default)s)",
         default=0.0,
     )
+    parser.add_argument(
+        "-sh",
+        "--skipheader",
+        type=int,
+        help="Skip headers in filename (default: %(default)s)",
+        default=0,
+    )
+    parser.add_argument(
+        "-sf",
+        "--skipfooter",
+        type=int,
+        help="Skip footer in filename (default: %(default)s)",
+        default=0,
+    )
     return parser
 
 
-def read_orderfile(fname):
+def read_orderfile(fname, skipheader=0, skipfooter=0):
     fname = os.path.abspath(fname)
     fdir = os.path.dirname(fname)
     with open(fname, "r") as fin:
         files = fin.readlines()
+
+    # Return the lines excluding the header and footer
+    if skipfooter == 0:
+        files = files[skipheader:]
+    else:
+        files = files[skipheader:-skipfooter]
 
     mov = [os.path.join(fdir, f.strip()) for f in files]
     return mov
@@ -386,6 +406,7 @@ def generate_video_hl(
     else:
         naudio = new_audioclip.with_duration(clipduration)  # .audio_fadeout(afadeout)
 
+    naudio = naudio.with_effects([afx.AudioFadeOut(afadeout)])
     clip_withsound = clip.with_audio(naudio)
     print("fps is : ", fps)
     clip_withsound.write_videofile(
@@ -412,6 +433,10 @@ def create_subclips(vtype: str, mov, vdurs, durations, clip_time):
     return get_linear_subclips(mov, vdurs, durations, clip_time)
 
 
+def _replace_space(text):
+    return text.replace(" ", "_")
+
+
 class ViztoolzPlugin:
     """Make highlights from videos"""
 
@@ -432,9 +457,11 @@ class ViztoolzPlugin:
         fadeout = args.fadeout
         afadeout = args.afadeout
         prefix = args.prefix
+        skipheader = args.skipheader
+        skipfooter = args.skipfooter
 
         # 1. Read inputs
-        mov = read_orderfile(args.filename)
+        mov = read_orderfile(args.filename, skipheader, skipfooter)
         vdir = os.path.dirname(os.path.abspath(args.filename))
         vdursd = {f: get_length(f) for f in mov}
         clip_time = clip_time or len(mov) + 1
@@ -469,7 +496,7 @@ class ViztoolzPlugin:
 
             out_name = os.path.join(
                 vdir,
-                f"{prefix}_{Path(audfile).stem[:10]}_{vtype}_highlights_t_{threshold}_{clip_time}.mp4",
+                f"{prefix}_{_replace_space(str(Path(audfile).stem[:10]))}_{vtype}_highlights_t_{threshold}_{clip_time}.mp4",
             )
 
             generate_video_hl(
@@ -561,6 +588,9 @@ def create_video_using_subclips_json(subclips, out_name=None):
     with open(subclips, "r") as f:
         data = json.load(f)
 
+    basename = os.path.basename(subclips)
+    # basename, _ = os.path.split(basename)
+
     vdir = os.path.dirname(os.path.abspath(subclips))
 
     # Extract top-level parameters
@@ -578,10 +608,8 @@ def create_video_using_subclips_json(subclips, out_name=None):
     threshold = args.get("threshold", 0.3)
     howmany = args.get("howmany", 5)
 
-    out_name = os.path.join(
-        vdir,
-        f"{prefix}_{Path(audfile).stem[:10]}_{vtype}_stitch_t_{threshold}_hm_{howmany}.mp4",
-    )
+    fname = f"{_replace_space(basename[:10])}_{prefix}_{_replace_space(str(Path(audfile).stem[:10]))}_{vtype}_stitch_t_{threshold}_hm_{howmany}"
+    out_name = os.path.join(vdir, f"{fname}.mp4")
 
     cwd = os.getcwd()
     _, new_audio = beats_clip(audfile, startat)
@@ -633,13 +661,14 @@ class ViztoolzPluginStitch:
 
         # 3. Select clips
         subclips = generate_video_cuts(vdursd, durations, howmany)
-
+        basename = os.path.basename(args.filename)
         # save json
+        vtype = "linear"
         argsdict = copy.copy(args.__dict__)
         del argsdict["func"]
-        json_file = os.path.join(vdir, "stitch.json")
+        fname = f"{basename[:10]}_{Path(audfile).stem[:10]}_{vtype}_stitch_t_{threshold}_hm_{howmany}"
+        json_file = os.path.join(vdir, f"{fname}.json")
         write_subclips_json(json_file, {"args": argsdict, "subclips": subclips})
-        vtype = "linear"
         create_video_using_subclips_json(json_file)
 
     def hello(self, args):
