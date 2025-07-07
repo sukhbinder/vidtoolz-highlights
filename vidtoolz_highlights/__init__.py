@@ -354,7 +354,6 @@ def make_video(files, fname):
     base_name = os.path.basename(fname)
     bname, ext = os.path.splitext(base_name)
     out_file = "{}_mylist.txt".format(bname)
-
     # Slow the videos using ffmpeg
     sfiles = []
     for f in files:
@@ -367,6 +366,7 @@ def make_video(files, fname):
         else:
             outf = "{0}-ns.mp4".format(f)
             cmdline = "ffmpeg -i {0} -an -c:v copy {1}".format(f, outf)
+            iret = os.system(cmdline)
             sfiles.append(outf)
 
     with open(out_file, "w") as fout:
@@ -560,14 +560,14 @@ def trim_and_get_outfiles_for_coninous(subclips, slow=0.1):
             dur = get_length(item)
             st = 0.0
             et = st + dur
-            outfile = "{0}_output_{1}_s.mp4".format(inum, fname)
+            outfile = "{0}_output_{1}.mp4".format(inum, fname)
             trim_by_ffmpeg(item, st, et, outfile, dur)
             if os.path.exists(outfile):
                 outfiles.append(outfile)
                 inum = inum + 1
         for st, et in val:
             # round the time to 2 decimal place.
-            st, et = np.round(st, 2), np.round(et, 2)
+            st, et = np.round(st, 3), np.round(et, 3)
             dur = et - st
             if dur > 5.0:
                 outfile = "{0}_output_{1}.mp4".format(inum, fname)
@@ -658,6 +658,7 @@ class ViztoolzPluginStitch:
         beats = detect_beats(audfile, startat)
         times = extract_beat_times(beats, threshold)
         durations = compute_segment_durations(times)
+        # durations = [1,2,3,5]
 
         # 3. Select clips
         subclips = generate_video_cuts(vdursd, durations, howmany)
