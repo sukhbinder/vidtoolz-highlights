@@ -410,7 +410,10 @@ def generate_video_hl(
     clip_withsound = clip.with_audio(naudio)
     print("fps is : ", fps)
     clip_withsound.write_videofile(
-        outfile, temp_audiofile="out.m4a", audio_codec="aac", fps=fps
+        outfile,
+        temp_audiofile="out.m4a",
+        audio_codec="aac",
+        fps=fps,
     )
     clip.close()
     return clip_withsound
@@ -560,7 +563,7 @@ def trim_and_get_outfiles_for_coninous(subclips, slow=0.1):
             dur = get_length(item)
             st = 0.0
             et = st + dur
-            outfile = "{0}_output_{1}.mp4".format(inum, fname)
+            outfile = "{0}_output_{1}_s.mp4".format(inum, fname)
             trim_by_ffmpeg(item, st, et, outfile, dur)
             if os.path.exists(outfile):
                 outfiles.append(outfile)
