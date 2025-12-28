@@ -1,20 +1,19 @@
-import vidtoolz
+import copy
+import json
 import os
-from vidtoolz_beats import detect_beats
+import random
 import subprocess
+import tempfile
+from itertools import cycle
+from pathlib import Path
+from random import choices
+from typing import Dict, List, Tuple
+
 import moviepy as mpy
 import numpy as np
-from itertools import cycle
-import tempfile
-from moviepy import afx
-from pathlib import Path
-import json
-import copy
-
-import random
-from typing import Dict, List, Tuple
-from itertools import cycle
-from random import choices
+import vidtoolz
+from moviepy import afx, vfx
+from vidtoolz_beats import detect_beats
 
 
 def write_subclips_json(fname, subclips):
@@ -310,7 +309,7 @@ def get_linear_subclips(mov, vdurs, dur, ntime):
             # Fallback if no suitable clip is found after all retries
             start_time = 0.0
             # Ensure span is not greater than the duration of the last checked file
-            if 'duration' in locals() and duration < span:
+            if "duration" in locals() and duration < span:
                 span = duration
         end_time = start_time + span
         subclips.append((file, start_time, end_time, speed))
@@ -403,7 +402,7 @@ def generate_video_hl(
 ):
     if clip is None:
         clip = mpy.concatenate_videoclips(vc, method="compose")
-        clip = clip.fadeout(fadeout)
+        clip = clip.with_effects([vfx.FadeOut(fadeout)])
 
     try:
         audiofile = os.path.join(os.path.dirname(outfile), "out_audio.mp3")
@@ -543,7 +542,6 @@ def generate_video_cuts(
     min_gap: float = 0.5,
     max_gap: float = 1.0,
 ) -> Dict[str, List[Tuple[float, float]]]:
-
     result = {}
 
     for video_path, duration in video_dict.items():
