@@ -244,19 +244,27 @@ def get_non_linear_subclips_VDURS(mov, vdurs, dur, time):
             break
         span = next(cc)
         cumdur = cumdur + span
-        while True:
+        max_retries = len(mov) * 2
+        for _ in range(max_retries):
             file = np.random.choice(mov)
             try:
                 duration = vdurs[file]
-            except Exception as ex:
-                print(file, "wrong")
+            except KeyError:
+                print(f"{file} not found in vdurs")
                 continue
+
             speed = 0 if span > 6.0 else 1
             if speed == 1:
-                span = span / 2
-            start_time = np.random.uniform(0, duration - span)
+                span /= 2
+
             if duration - span > 0:
+                start_time = np.random.uniform(0, duration - span)
                 break
+        else:
+            # If the loop completes without breaking, it means no suitable file was found
+            # Fallback to using the last chosen file and starting from the beginning
+            start_time = 0
+
         # remove file for less than 2 sec duration
         if int(duration / 2) <= 1:
             mov.remove(file)
@@ -275,25 +283,35 @@ def get_linear_subclips(mov, vdurs, dur, ntime):
     nd = cycle(dur)
     for i in range(ntime - 1):
         span = next(nd)
-        while True:
+        max_retries = len(mov) * 2
+        for _ in range(max_retries):
             file = next(cc)
             try:
                 duration = vdurs[file]
-            except Exception as ex:
-                print(file, "wrong")
+            except KeyError:
+                print(f"{file} not found in vdurs")
                 continue
+
             speed = 0 if span < 0.3 else 1
             if duration <= span:
                 start_time = 0.0  # take the whole
                 span = duration
                 break
+
             if span > 5:  # if more than 10 sec video don't slow
                 speed = 0
             if speed == 1:
-                span = span / 2
-            start_time = np.random.uniform(0, duration - span)
+                span /= 2
+
             if duration - span > 0:
+                start_time = np.random.uniform(0, duration - span)
                 break
+        else:
+            # Fallback if no suitable clip is found after all retries
+            start_time = 0.0
+            # Ensure span is not greater than the duration of the last checked file
+            if 'duration' in locals() and duration < span:
+                span = duration
         end_time = start_time + span
         subclips.append((file, start_time, end_time, speed))
     return subclips
