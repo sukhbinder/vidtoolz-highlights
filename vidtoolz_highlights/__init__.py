@@ -484,7 +484,7 @@ class ViztoolzPlugin:
         for f, st in zip(audfiles, startats):
             clip = mpy.AudioFileClip(f)
             if st > 0:
-                clip = clip.subclip(st)
+                clip = clip.subclipped(st)
             clips.append(clip)
 
         final_clip = mpy.concatenate_audioclips(clips)
@@ -704,7 +704,7 @@ class ViztoolzPluginStitch:
         for f, st in zip(audfiles, startats):
             clip = mpy.AudioFileClip(f)
             if st > 0:
-                clip = clip.subclip(st)
+                clip = clip.subclipped(st)
             clips.append(clip)
 
         final_clip = mpy.concatenate_audioclips(clips)
