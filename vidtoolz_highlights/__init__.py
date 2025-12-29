@@ -147,6 +147,7 @@ def create_parser(subparser):
         "-aaf",
         "--audfile",
         type=str,
+        nargs="+",
         help="mp3 Audio file (default: %(default)s)",
         default=None,
     )
@@ -678,32 +679,45 @@ class ViztoolzPluginStitch:
 
     def run(self, args):
         audfile = args.audfile
-        startat = args.startat
-        threshold = args.threshold
-        howmany = args.howmany
+        temp_audio_filepath = None
+        if isinstance(audfile, list):
+            clips = [mpy.AudioFileClip(f) for f in audfile]
+            final_clip = mpy.concatenate_audioclips(clips)
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
+                final_clip.write_audiofile(temp_f.name)
+                temp_audio_filepath = temp_f.name
+            audfile = temp_audio_filepath
 
-        # 1. Read inputs
-        mov = read_orderfile(args.filename)
-        vdir = os.path.dirname(os.path.abspath(args.filename))
-        vdursd = {f: get_length(f) for f in mov}
+        try:
+            startat = args.startat
+            threshold = args.threshold
+            howmany = args.howmany
 
-        # 2. Analyze audio
-        beats = detect_beats(audfile, startat)
-        times = extract_beat_times(beats, threshold)
-        durations = compute_segment_durations(times)
-        # durations = [1,2,3,5]
+            # 1. Read inputs
+            mov = read_orderfile(args.filename)
+            vdir = os.path.dirname(os.path.abspath(args.filename))
+            vdursd = {f: get_length(f) for f in mov}
 
-        # 3. Select clips
-        subclips = generate_video_cuts(vdursd, durations, howmany)
-        basename = os.path.basename(args.filename)
-        # save json
-        vtype = "linear"
-        argsdict = copy.copy(args.__dict__)
-        del argsdict["func"]
-        fname = f"{basename[:10]}_{Path(audfile).stem[:10]}_{vtype}_stitch_t_{threshold}_hm_{howmany}"
-        json_file = os.path.join(vdir, f"{fname}.json")
-        write_subclips_json(json_file, {"args": argsdict, "subclips": subclips})
-        create_video_using_subclips_json(json_file)
+            # 2. Analyze audio
+            beats = detect_beats(audfile, startat)
+            times = extract_beat_times(beats, threshold)
+            durations = compute_segment_durations(times)
+            # durations = [1,2,3,5]
+
+            # 3. Select clips
+            subclips = generate_video_cuts(vdursd, durations, howmany)
+            basename = os.path.basename(args.filename)
+            # save json
+            vtype = "linear"
+            argsdict = copy.copy(args.__dict__)
+            del argsdict["func"]
+            fname = f"{basename[:10]}_{Path(audfile).stem[:10]}_{vtype}_stitch_t_{threshold}_hm_{howmany}"
+            json_file = os.path.join(vdir, f"{fname}.json")
+            write_subclips_json(json_file, {"args": argsdict, "subclips": subclips})
+            create_video_using_subclips_json(json_file)
+        finally:
+            if temp_audio_filepath:
+                os.remove(temp_audio_filepath)
 
     def hello(self, args):
         # this routine will be called when "vidtoolz "highlights is called."

@@ -119,7 +119,7 @@ def test_create_parser_with_all_args(subparsers):
     assert args.fps == 24
     assert args.fadeout == 2.0
     assert args.afadeout == 1.5
-    assert args.audfile == "track.mp3"
+    assert args.audfile == ["track.mp3"]
     assert args.startat == 1.0
 
 
