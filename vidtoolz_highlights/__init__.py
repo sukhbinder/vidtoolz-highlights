@@ -66,6 +66,7 @@ def create_parser2(subparser):
         "-aaf",
         "--audfile",
         type=str,
+        nargs="+",
         help="mp3 Audio file (default: %(default)s)",
         default=None,
     )
@@ -469,66 +470,79 @@ class ViztoolzPlugin:
 
     def run(self, args):
         audfile = args.audfile
-        startat = args.startat
-        threshold = args.threshold
-        vtype = args.vtype
-        clip_time = args.clip_time
-        fps = args.fps
-        fadeout = args.fadeout
-        afadeout = args.afadeout
-        prefix = args.prefix
-        skipheader = args.skipheader
-        skipfooter = args.skipfooter
+        temp_audio_filepath = None
+        if isinstance(audfile, list):
+            clips = [mpy.AudioFileClip(f) for f in audfile]
+            final_clip = mpy.concatenate_audioclips(clips)
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
+                final_clip.write_audiofile(temp_f.name)
+                temp_audio_filepath = temp_f.name
+            audfile = temp_audio_filepath
 
-        # 1. Read inputs
-        mov = read_orderfile(args.filename, skipheader, skipfooter)
-        vdir = os.path.dirname(os.path.abspath(args.filename))
-        vdursd = {f: get_length(f) for f in mov}
-        clip_time = clip_time or len(mov) + 1
+        try:
+            startat = args.startat
+            threshold = args.threshold
+            vtype = args.vtype
+            clip_time = args.clip_time
+            fps = args.fps
+            fadeout = args.fadeout
+            afadeout = args.afadeout
+            prefix = args.prefix
+            skipheader = args.skipheader
+            skipfooter = args.skipfooter
 
-        # 2. Analyze audio
-        beats = detect_beats(audfile, startat)
-        times = extract_beat_times(beats, threshold)
-        durations = compute_segment_durations(times)
+            # 1. Read inputs
+            mov = read_orderfile(args.filename, skipheader, skipfooter)
+            vdir = os.path.dirname(os.path.abspath(args.filename))
+            vdursd = {f: get_length(f) for f in mov}
+            clip_time = clip_time or len(mov) + 1
 
-        _, new_audio = beats_clip(audfile, startat)
+            # 2. Analyze audio
+            beats = detect_beats(audfile, startat)
+            times = extract_beat_times(beats, threshold)
+            durations = compute_segment_durations(times)
 
-        # 3. Select clips
-        subclips = create_subclips(vtype, mov, vdursd, durations, clip_time)
+            _, new_audio = beats_clip(audfile, startat)
 
-        # save json
-        argsdict = copy.copy(args.__dict__)
-        del argsdict["func"]
-        json_file = os.path.join(vdir, "highlights.json")
-        write_subclips_json(json_file, {"args": argsdict, "subclips": subclips})
+            # 3. Select clips
+            subclips = create_subclips(vtype, mov, vdursd, durations, clip_time)
 
-        # total_duration = sum(e - s for _, s, e, _ in subclips)
-        # print("Total duration of output video:", total_duration)
+            # save json
+            argsdict = copy.copy(args.__dict__)
+            del argsdict["func"]
+            json_file = os.path.join(vdir, "highlights.json")
+            write_subclips_json(json_file, {"args": argsdict, "subclips": subclips})
 
-        cwd = os.getcwd()
-        with tempfile.TemporaryDirectory(prefix="highlights") as tempdir:
-            os.chdir(tempdir)
+            # total_duration = sum(e - s for _, s, e, _ in subclips)
+            # print("Total duration of output video:", total_duration)
 
-            trimmed = trim_and_get_outfiles(subclips)
-            make_video(trimmed, "combined_withffmpeg.mp4")
+            cwd = os.getcwd()
+            with tempfile.TemporaryDirectory(prefix="highlights") as tempdir:
+                os.chdir(tempdir)
 
-            final_clip = mpy.VideoFileClip("combined_withffmpeg.mp4")
+                trimmed = trim_and_get_outfiles(subclips)
+                make_video(trimmed, "combined_withffmpeg.mp4")
 
-            out_name = os.path.join(
-                vdir,
-                f"{prefix}_{_replace_space(str(Path(audfile).stem[:10]))}_{vtype}_highlights_t_{threshold}_{clip_time}.mp4",
-            )
+                final_clip = mpy.VideoFileClip("combined_withffmpeg.mp4")
 
-            generate_video_hl(
-                [],
-                new_audio,
-                out_name,
-                fps=fps,
-                fadeout=fadeout,
-                afadeout=afadeout,
-                clip=final_clip,
-            )
-        os.chdir(cwd)
+                out_name = os.path.join(
+                    vdir,
+                    f"{prefix}_{_replace_space(str(Path(audfile).stem[:10]))}_{vtype}_highlights_t_{threshold}_{clip_time}.mp4",
+                )
+
+                generate_video_hl(
+                    [],
+                    new_audio,
+                    out_name,
+                    fps=fps,
+                    fadeout=fadeout,
+                    afadeout=afadeout,
+                    clip=final_clip,
+                )
+            os.chdir(cwd)
+        finally:
+            if temp_audio_filepath:
+                os.remove(temp_audio_filepath)
 
     def hello(self, args):
         # this routine will be called when "vidtoolz "highlights is called."
