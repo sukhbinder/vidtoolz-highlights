@@ -74,8 +74,9 @@ def create_parser2(subparser):
         "-st",
         "--startat",
         type=float,
+        nargs="+",
         help="Audio startat (default: %(default)s)",
-        default=0.0,
+        default=None,
     )
 
     parser.add_argument(
@@ -156,8 +157,9 @@ def create_parser(subparser):
         "-st",
         "--startat",
         type=float,
+        nargs="+",
         help="Audio startat (default: %(default)s)",
-        default=0.0,
+        default=None,
     )
     parser.add_argument(
         "-sh",
@@ -470,18 +472,30 @@ class ViztoolzPlugin:
         self.parser.set_defaults(func=self.run)
 
     def run(self, args):
-        audfile = args.audfile
+        audfiles = args.audfile
+        startats = args.startat if args.startat is not None else []
         temp_audio_filepath = None
-        if isinstance(audfile, list):
-            clips = [mpy.AudioFileClip(f) for f in audfile]
-            final_clip = mpy.concatenate_audioclips(clips)
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
-                final_clip.write_audiofile(temp_f.name)
-                temp_audio_filepath = temp_f.name
-            audfile = temp_audio_filepath
+
+        # Pad startats with 0.0 if it's shorter than audfiles
+        if len(startats) < len(audfiles):
+            startats.extend([0.0] * (len(audfiles) - len(startats)))
+
+        clips = []
+        for f, st in zip(audfiles, startats):
+            clip = mpy.AudioFileClip(f)
+            if st > 0:
+                clip = clip.subclip(st)
+            clips.append(clip)
+
+        final_clip = mpy.concatenate_audioclips(clips)
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
+            final_clip.write_audiofile(temp_f.name)
+            temp_audio_filepath = temp_f.name
+
+        audfile = temp_audio_filepath
+        startat = 0.0
 
         try:
-            startat = args.startat
             threshold = args.threshold
             vtype = args.vtype
             clip_time = args.clip_time
@@ -678,18 +692,30 @@ class ViztoolzPluginStitch:
         self.parser.set_defaults(func=self.run)
 
     def run(self, args):
-        audfile = args.audfile
+        audfiles = args.audfile
+        startats = args.startat if args.startat is not None else []
         temp_audio_filepath = None
-        if isinstance(audfile, list):
-            clips = [mpy.AudioFileClip(f) for f in audfile]
-            final_clip = mpy.concatenate_audioclips(clips)
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
-                final_clip.write_audiofile(temp_f.name)
-                temp_audio_filepath = temp_f.name
-            audfile = temp_audio_filepath
+
+        # Pad startats with 0.0 if it's shorter than audfiles
+        if len(startats) < len(audfiles):
+            startats.extend([0.0] * (len(audfiles) - len(startats)))
+
+        clips = []
+        for f, st in zip(audfiles, startats):
+            clip = mpy.AudioFileClip(f)
+            if st > 0:
+                clip = clip.subclip(st)
+            clips.append(clip)
+
+        final_clip = mpy.concatenate_audioclips(clips)
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
+            final_clip.write_audiofile(temp_f.name)
+            temp_audio_filepath = temp_f.name
+
+        audfile = temp_audio_filepath
+        startat = 0.0
 
         try:
-            startat = args.startat
             threshold = args.threshold
             howmany = args.howmany
 

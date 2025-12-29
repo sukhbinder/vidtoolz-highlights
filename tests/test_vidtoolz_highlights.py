@@ -26,7 +26,7 @@ def test_create_parser2_required_and_defaults(subparsers):
     assert args.afadeout == 2.0
     assert args.debug is False
     assert args.audfile is None
-    assert args.startat == 0.0
+    assert args.startat is None
     assert args.howmany == 15
 
 
@@ -63,7 +63,7 @@ def test_create_parser2_with_all_args(subparsers):
     assert args.afadeout == 3.0
     assert args.debug is True
     assert args.audfile == ["audio.mp3"]
-    assert args.startat == 2.5
+    assert args.startat == [2.5]
     assert args.howmany == 10
 
 
@@ -80,7 +80,7 @@ def test_create_parser_required_and_defaults(subparsers):
     assert args.fadeout == 1.0
     assert args.afadeout == 2.0
     assert args.audfile is None
-    assert args.startat == 0.0
+    assert args.startat is None
     assert args.skipheader == 0
     assert args.skipfooter == 0
 
@@ -120,7 +120,7 @@ def test_create_parser_with_all_args(subparsers):
     assert args.fadeout == 2.0
     assert args.afadeout == 1.5
     assert args.audfile == ["track.mp3"]
-    assert args.startat == 1.0
+    assert args.startat == [1.0]
 
 
 def test_plugin(capsys):
