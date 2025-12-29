@@ -1,11 +1,15 @@
-import pytest
-import vidtoolz_highlights as w
-import pytest
-import numpy as np
-from itertools import cycle
-from unittest.mock import patch
-from argparse import ArgumentParser
 import builtins
+import os
+import subprocess
+import sys
+from argparse import ArgumentParser
+from itertools import cycle
+from unittest.mock import mock_open, patch
+
+import numpy as np
+import pytest
+
+import vidtoolz_highlights as w
 
 
 @pytest.fixture
@@ -26,7 +30,7 @@ def test_create_parser2_required_and_defaults(subparsers):
     assert args.afadeout == 2.0
     assert args.debug is False
     assert args.audfile is None
-    assert args.startat == 0.0
+    assert args.startat is None
     assert args.howmany == 15
 
 
@@ -62,8 +66,8 @@ def test_create_parser2_with_all_args(subparsers):
     assert args.fadeout == 1.5
     assert args.afadeout == 3.0
     assert args.debug is True
-    assert args.audfile == "audio.mp3"
-    assert args.startat == 2.5
+    assert args.audfile == ["audio.mp3"]
+    assert args.startat == [2.5]
     assert args.howmany == 10
 
 
@@ -80,7 +84,7 @@ def test_create_parser_required_and_defaults(subparsers):
     assert args.fadeout == 1.0
     assert args.afadeout == 2.0
     assert args.audfile is None
-    assert args.startat == 0.0
+    assert args.startat is None
     assert args.skipheader == 0
     assert args.skipfooter == 0
 
@@ -119,8 +123,8 @@ def test_create_parser_with_all_args(subparsers):
     assert args.fps == 24
     assert args.fadeout == 2.0
     assert args.afadeout == 1.5
-    assert args.audfile == "track.mp3"
-    assert args.startat == 1.0
+    assert args.audfile == ["track.mp3"]
+    assert args.startat == [1.0]
 
 
 def test_plugin(capsys):
@@ -327,3 +331,126 @@ def test_trim_skips_missing_files(
 ):
     output = w.trim_and_get_outfiles_for_coninous(subclips)
     assert output == []  # os.path.exists always returns False
+
+
+# --- Tests for error handling ---
+@patch("subprocess.run")
+def test_get_length_ffprobe_failure(mock_run):
+    """Test that get_length falls back to moviepy when ffprobe fails."""
+    mock_run.side_effect = Exception("ffprobe not found")
+
+    with patch("moviepy.VideoFileClip") as mock_clip:
+        mock_instance = mock_clip.return_value.__enter__.return_value
+        mock_instance.duration = 123.45
+
+        result = w.get_length("test.mp4")
+        assert result == 123.45
+        mock_run.assert_called_once()
+
+
+@patch("subprocess.run")
+def test_get_length_both_methods_fail(mock_run):
+    """Test that get_length raises VideoDurationError when both methods fail."""
+    mock_run.side_effect = Exception("ffprobe not found")
+
+    with patch("moviepy.VideoFileClip") as mock_clip:
+        mock_clip.side_effect = Exception("moviepy error")
+
+        with pytest.raises(w.VideoDurationError):
+            w.get_length("test.mp4")
+
+
+def test_get_length_negative_duration():
+    """Test that get_length raises ValueError for negative duration."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.stdout = "-5.0"
+
+        with pytest.raises(w.VideoDurationError):
+            w.get_length("test.mp4")
+
+
+def test_file_not_found_error():
+    """Test that FileNotFoundError is raised for missing files."""
+    with pytest.raises(w.FileNotFoundError):
+        raise w.FileNotFoundError("test.mp4 not found")
+
+
+def test_video_processing_error():
+    """Test that VideoProcessingError is raised for processing failures."""
+    with pytest.raises(w.VideoProcessingError):
+        raise w.VideoProcessingError("processing failed")
+
+
+def test_integration_highlights(tmpdir):
+    # Use absolute paths for test data
+    testdata = os.path.abspath(os.path.join(os.path.dirname(__file__), "test_data"))
+    audio1 = os.path.join(testdata, "wild.mp3")
+    audio2 = os.path.join(testdata, "MalgudiDays.mp3")
+    mp4files = os.path.join(testdata, "orderfiles.txt")
+    
+    # Test that files exist and are accessible
+    assert os.path.exists(mp4files), f"Order file not found: {mp4files}"
+    assert os.path.exists(audio1), f"Audio file 1 not found: {audio1}"
+    assert os.path.exists(audio2), f"Audio file 2 not found: {audio2}"
+    
+    # Test that we can read the order file
+    with open(mp4files, 'r') as f:
+        video_files = f.readlines()
+    assert len(video_files) > 0, "No video files in order file"
+    
+    # Test that video files exist
+    video_paths = [os.path.join(os.path.dirname(mp4files), f.strip()) for f in video_files]
+    for video_path in video_paths:
+        assert os.path.exists(video_path), f"Video file not found: {video_path}"
+    
+    # Test core functionality: read_orderfile
+    mov = w.read_orderfile(mp4files)
+    assert len(mov) > 0, "No video files read from order file"
+    
+    # Test core functionality: get_length for one video
+    sample_video = mov[0]
+    duration = w.get_length(sample_video)
+    assert duration > 0, f"Video duration is not positive: {duration}"
+    
+    print("Integration test passed - core functionality works")
+
+
+def test_integration_stitch(tmpdir):
+    # Use absolute paths for test data
+    testdata = os.path.abspath(os.path.join(os.path.dirname(__file__), "test_data"))
+    audio1 = os.path.join(testdata, "wild.mp3")
+    audio2 = os.path.join(testdata, "MalgudiDays.mp3")
+    mp4files = os.path.join(testdata, "orderfiles.txt")
+    
+    # Test that files exist and are accessible
+    assert os.path.exists(mp4files), f"Order file not found: {mp4files}"
+    assert os.path.exists(audio1), f"Audio file 1 not found: {audio1}"
+    assert os.path.exists(audio2), f"Audio file 2 not found: {audio2}"
+    
+    # Test that we can read the order file
+    with open(mp4files, 'r') as f:
+        video_files = f.readlines()
+    assert len(video_files) > 0, "No video files in order file"
+    
+    # Test that video files exist
+    video_paths = [os.path.join(os.path.dirname(mp4files), f.strip()) for f in video_files]
+    for video_path in video_paths:
+        assert os.path.exists(video_path), f"Video file not found: {video_path}"
+    
+    # Test core functionality: read_orderfile
+    mov = w.read_orderfile(mp4files)
+    assert len(mov) > 0, "No video files read from order file"
+    
+    # Test core functionality: get_length for one video
+    sample_video = mov[0]
+    duration = w.get_length(sample_video)
+    assert duration > 0, f"Video duration is not positive: {duration}"
+    
+    # Test stitch-specific functionality: generate_video_cuts
+    video_dict = {sample_video: duration}
+    intervals = [2.0, 3.0]
+    cuts = w.generate_video_cuts(video_dict, intervals, max_cuts=3)
+    assert sample_video in cuts, "No cuts generated for sample video"
+    assert len(cuts[sample_video]) > 0, "No cuts generated"
+    
+    print("Integration test passed - core functionality works")
