@@ -1,5 +1,6 @@
 import copy
 import json
+import logging
 import os
 import random
 import subprocess
@@ -14,6 +15,35 @@ import numpy as np
 import vidtoolz
 from moviepy import afx, vfx
 from vidtoolz_beats import detect_beats
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Constants for magic numbers
+MIN_VIDEO_DURATION = 2.0  # Minimum duration for a video clip
+LONG_CLIP_THRESHOLD = 6.0  # Threshold for considering a clip "long"
+SHORT_CLIP_THRESHOLD = 5.0  # Threshold for considering a clip "short"
+SLOW_MOTION_SPEED = 0.5  # Speed factor for slow motion clips
+
+
+# Custom exceptions
+class VideoDurationError(Exception):
+    """Exception raised when video duration cannot be determined."""
+    pass
+
+
+class VideoProcessingError(Exception):
+    """Exception raised when video processing fails."""
+    pass
+
+
+class FileNotFoundError(Exception):
+    """Exception raised when required files are not found."""
+    pass
 
 
 def write_subclips_json(fname, subclips):
@@ -194,8 +224,18 @@ def read_orderfile(fname, skipheader=0, skipfooter=0):
     return mov
 
 
-def get_length(filename):
-    """Get video duration using ffprobe, fallback to moviepy if it fails."""
+def get_length(filename: str) -> float:
+    """Get video duration using ffprobe, fallback to moviepy if it fails.
+    
+    Args:
+        filename: Path to video file
+        
+    Returns:
+        Video duration in seconds
+        
+    Raises:
+        VideoDurationError: If duration cannot be determined
+    """
     try:
         result = subprocess.run(
             [
@@ -216,20 +256,30 @@ def get_length(filename):
         duration = float(result.stdout.strip())
         if duration <= 0:
             raise ValueError("Duration returned by ffprobe is zero or negative.")
+        logger.debug(f"Successfully got duration {duration} for {filename} using ffprobe")
         return duration
     except Exception as e:
-        print(
-            f"[WARN] ffprobe failed for {filename}, falling back to moviepy. Reason: {e}"
-        )
+        logger.warning(f"ffprobe failed for {filename}, falling back to moviepy. Reason: {e}")
         try:
             with mpy.VideoFileClip(filename) as clip:
-                return clip.duration
+                duration = clip.duration
+                logger.debug(f"Successfully got duration {duration} for {filename} using moviepy")
+                return duration
         except Exception as ex:
-            print(f"[ERROR] Failed to get duration via moviepy for {filename}: {ex}")
-            return 0.0
+            logger.error(f"Failed to get duration via moviepy for {filename}: {ex}")
+            raise VideoDurationError(f"Could not determine duration for {filename}") from ex
 
 
-def beats_clip(audfile, offset=0.0):
+def beats_clip(audfile: str, offset: float = 0.0) -> Tuple[str, mpy.CompositeAudioClip]:
+    """Create an audio clip from a file with optional offset.
+    
+    Args:
+        audfile: Path to audio file
+        offset: Start offset in seconds
+        
+    Returns:
+        Tuple of (song_name, audio_clip)
+    """
     song_name = os.path.basename(audfile)
 
     snd = mpy.AudioFileClip(audfile)
@@ -238,25 +288,44 @@ def beats_clip(audfile, offset=0.0):
 
 
 def get_non_linear_subclips_VDURS(mov, vdurs, dur, time):
+    """Generate non-linear subclips from video files.
+    
+    Args:
+        mov: List of video file paths
+        vdurs: Dictionary mapping file paths to their durations
+        dur: List of duration values to cycle through
+        time: Total target time for subclips
+        
+    Returns:
+        List of tuples containing (file_path, start_time, end_time, speed)
+    """
     subclips = []
     cc = cycle(dur)
     cumdur = 0
+    
+    logger.debug(f"Starting non-linear subclip generation with {len(mov)} files, target time: {time}")
+    
     while cumdur <= time:
         if not mov:
-            print("No more valid files to choose from.")
+            logger.warning("No more valid files to choose from.")
             break
+            
         span = next(cc)
         cumdur = cumdur + span
         max_retries = len(mov) * 2
+        
+        logger.debug(f"Looking for clip with span {span}, cumulative duration: {cumdur}")
+        
         for _ in range(max_retries):
             file = np.random.choice(mov)
             try:
                 duration = vdurs[file]
             except KeyError:
-                print(f"{file} not found in vdurs")
+                logger.error(f"{file} not found in vdurs")
                 continue
 
-            speed = 0 if span > 6.0 else 1
+            # Determine speed based on clip length
+            speed = 0 if span > LONG_CLIP_THRESHOLD else 1
             if speed == 1:
                 span /= 2
 
@@ -267,41 +336,65 @@ def get_non_linear_subclips_VDURS(mov, vdurs, dur, time):
             # If the loop completes without breaking, it means no suitable file was found
             # Fallback to using the last chosen file and starting from the beginning
             start_time = 0
+            logger.warning(f"No suitable file found after {max_retries} retries, using fallback")
 
         # remove file for less than 2 sec duration
         if int(duration / 2) <= 1:
             mov.remove(file)
-        if span > 6:  # Remove if a big cut has been done from a file
+            logger.debug(f"Removed {file} due to short duration")
+        if span > LONG_CLIP_THRESHOLD:  # Remove if a big cut has been done from a file
             mov.remove(file)
+            logger.debug(f"Removed {file} after large clip extraction")
+            
         end_time = start_time + span
         subclips.append((file, start_time, end_time, speed))
-        print(span, cumdur, file, start_time, end_time, speed)
+        logger.debug(f"Added subclip: {file} [{start_time:.2f}-{end_time:.2f}] speed={speed}")
 
+    logger.info(f"Generated {len(subclips)} subclips with total duration {cumdur:.2f}s")
     return subclips
 
 
 def get_linear_subclips(mov, vdurs, dur, ntime):
+    """Generate linear subclips from video files.
+    
+    Args:
+        mov: List of video file paths
+        vdurs: Dictionary mapping file paths to their durations
+        dur: List of duration values to cycle through
+        ntime: Number of clips to generate
+        
+    Returns:
+        List of tuples containing (file_path, start_time, end_time, speed)
+    """
     subclips = []
     cc = cycle(mov)
     nd = cycle(dur)
+    
+    logger.debug(f"Starting linear subclip generation for {ntime-1} clips from {len(mov)} files")
+    
     for i in range(ntime - 1):
         span = next(nd)
         max_retries = len(mov) * 2
+        
+        logger.debug(f"Processing clip {i+1}/{ntime-1}, target span: {span}")
+        
         for _ in range(max_retries):
             file = next(cc)
             try:
                 duration = vdurs[file]
             except KeyError:
-                print(f"{file} not found in vdurs")
+                logger.error(f"{file} not found in vdurs")
                 continue
 
+            # Determine speed based on clip length
             speed = 0 if span < 0.3 else 1
             if duration <= span:
                 start_time = 0.0  # take the whole
                 span = duration
+                logger.debug(f"Using entire file {file} (duration: {duration})")
                 break
 
-            if span > 5:  # if more than 10 sec video don't slow
+            if span > SHORT_CLIP_THRESHOLD:  # if more than 10 sec video don't slow
                 speed = 0
             if speed == 1:
                 span /= 2
@@ -312,20 +405,50 @@ def get_linear_subclips(mov, vdurs, dur, ntime):
         else:
             # Fallback if no suitable clip is found after all retries
             start_time = 0.0
+            logger.warning(f"No suitable clip found after {max_retries} retries, using fallback")
             # Ensure span is not greater than the duration of the last checked file
             if "duration" in locals() and duration < span:
                 span = duration
+                logger.debug(f"Adjusted span to {span} to match file duration")
+                
         end_time = start_time + span
         subclips.append((file, start_time, end_time, speed))
+        logger.debug(f"Added subclip: {file} [{start_time:.2f}-{end_time:.2f}] speed={speed}")
+    
+    logger.info(f"Generated {len(subclips)} linear subclips")
     return subclips
 
 
-def get_seconds(ts):
+def get_seconds(ts: str) -> float:
+    """Convert time string (HH:MM:SS) to seconds.
+    
+    Args:
+        ts: Time string in HH:MM:SS format
+        
+    Returns:
+        Time in seconds as float
+    """
     secs = sum(int(x) * 60**i for i, x in enumerate(reversed(ts.split(":"))))
-    return secs
+    return float(secs)
 
 
 def trim_by_ffmpeg(inputfile, starttime, endtime, outputfile, duration=None):
+    """Trim video using ffmpeg.
+    
+    Args:
+        inputfile: Input video file path
+        starttime: Start time (can be string with HH:MM:SS format or float)
+        endtime: End time (can be string with HH:MM:SS format or float)
+        outputfile: Output file path
+        duration: Optional duration parameter
+        
+    Returns:
+        Return code from ffmpeg process
+        
+    Raises:
+        VideoProcessingError: If ffmpeg command fails
+    """
+    # Convert time formats if needed
     if isinstance(starttime, str):
         if ":" in starttime:
             starttime = get_seconds(starttime)
@@ -333,26 +456,47 @@ def trim_by_ffmpeg(inputfile, starttime, endtime, outputfile, duration=None):
         if ":" in endtime:
             endtime = get_seconds(endtime)
 
-    if duration is not None:
-        cmdline = "ffmpeg -y -ss {starttime:0.4f} -i {inputfile} -t {duration:0.4f} -c copy {outputfile}".format(
-            starttime=float(starttime),
-            inputfile=inputfile,
-            duration=float(duration),
-            outputfile=outputfile,
-        )
-    else:
-        cmdline = "ffmpeg -y -ss {starttime:0.4f} -i {inputfile} -to {endtime:0.4f} -map 0 -vcodec copy -acodec copy  {outputfile}".format(
-            starttime=float(starttime),
-            inputfile=inputfile,
-            endtime=float(endtime),
-            outputfile=outputfile,
-        )
-    cmdlist = cmdline.split()
-    iret = subprocess.call(cmdlist)
-    return iret
+    try:
+        if duration is not None:
+            cmdline = "ffmpeg -y -ss {starttime:0.4f} -i {inputfile} -t {duration:0.4f} -c copy {outputfile}".format(
+                starttime=float(starttime),
+                inputfile=inputfile,
+                duration=float(duration),
+                outputfile=outputfile,
+            )
+        else:
+            cmdline = "ffmpeg -y -ss {starttime:0.4f} -i {inputfile} -to {endtime:0.4f} -map 0 -vcodec copy -acodec copy  {outputfile}".format(
+                starttime=float(starttime),
+                inputfile=inputfile,
+                endtime=float(endtime),
+                outputfile=outputfile,
+            )
+        
+        logger.debug(f"Executing ffmpeg command: {cmdline}")
+        cmdlist = cmdline.split()
+        iret = subprocess.call(cmdlist)
+        
+        if iret != 0:
+            logger.error(f"ffmpeg command failed with return code {iret}: {cmdline}")
+            raise VideoProcessingError(f"ffmpeg failed to process {inputfile}")
+        
+        logger.debug(f"Successfully trimmed {inputfile} to {outputfile}")
+        return iret
+        
+    except Exception as e:
+        logger.error(f"Error in trim_by_ffmpeg: {e}")
+        raise VideoProcessingError(f"Failed to trim video: {e}") from e
 
 
-def trim_and_get_outfiles(sc):
+def trim_and_get_outfiles(sc: List[Tuple[str, float, float, int]]) -> List[str]:
+    """Trim video clips and return list of output file paths.
+    
+    Args:
+        sc: List of subclips as tuples (filename, start_time, end_time, speed)
+        
+    Returns:
+        List of output file paths
+    """
     outfiles = []
     for i, clip in enumerate(sc):
         fn, st, et, speed = clip
@@ -371,7 +515,16 @@ def trim_and_get_outfiles(sc):
     return outfiles
 
 
-def make_video(files, fname):
+def make_video(files: List[str], fname: str) -> int:
+    """Combine video files into a single video.
+    
+    Args:
+        files: List of input video file paths
+        fname: Output file path
+        
+    Returns:
+        Return code from ffmpeg process
+    """
     base_name = os.path.basename(fname)
     bname, ext = os.path.splitext(base_name)
     out_file = "{}_mylist.txt".format(bname)
@@ -381,7 +534,7 @@ def make_video(files, fname):
         if f.endswith("_s.mp4"):
             outf = "{0}-s.mp4".format(f)
             cmdline = "ffmpeg -i {0} -an -filter:v 'setpts=2.0*PTS' {1}".format(f, outf)
-            print(cmdline)
+            logger.debug(f"Executing: {cmdline}")
             iret = os.system(cmdline)
             sfiles.append(outf)
         else:
@@ -395,49 +548,78 @@ def make_video(files, fname):
             if os.path.exists(f):
                 fout.write("file '{}'\n".format(f))
     cmdline = "ffmpeg -f concat -safe 0 -i {0} -c copy {1}".format(out_file, fname)
-    print(cmdline)
+    logger.debug(f"Executing: {cmdline}")
     iret = os.system(cmdline)
-    print(cmdline)
+    logger.info(f"Combined {len(files)} videos into {fname}")
     return iret
 
 
 def generate_video_hl(
     vc, new_audioclip, outfile, fps=30, fadeout=1, afadeout=2, clip=None
 ):
-    if clip is None:
-        clip = mpy.concatenate_videoclips(vc, method="compose")
-        clip = clip.with_effects([vfx.FadeOut(fadeout)])
-
+    """Generate final video with highlights and audio.
+    
+    Args:
+        vc: List of video clips
+        new_audioclip: Audio clip to use
+        outfile: Output file path
+        fps: Frames per second
+        fadeout: Video fadeout duration
+        afadeout: Audio fadeout duration
+        clip: Optional pre-made video clip
+        
+    Returns:
+        Final video clip with audio
+        
+    Raises:
+        VideoProcessingError: If video generation fails
+    """
     try:
-        audiofile = os.path.join(os.path.dirname(outfile), "out_audio.mp3")
-        clip.audio.write_audiofile(audiofile, fps=44100)
-    except Exception as ex:
-        print(ex)
-        pass
+        if clip is None:
+            logger.debug("Concatenating video clips")
+            clip = mpy.concatenate_videoclips(vc, method="compose")
+            clip = clip.with_effects([vfx.FadeOut(fadeout)])
 
-    clipduration = clip.duration
-    min, sec = divmod(clipduration, 60)
-    print(
-        "Duration of generated clip is {0:.2f} seconds or {1:.0f}:{2:.0f} ".format(
-            clipduration, min, sec
+        # Extract audio from video clip
+        try:
+            audiofile = os.path.join(os.path.dirname(outfile), "out_audio.mp3")
+            clip.audio.write_audiofile(audiofile, fps=44100)
+            logger.debug(f"Extracted audio to {audiofile}")
+        except Exception as ex:
+            logger.warning(f"Failed to extract audio: {ex}")
+            # Continue without extracted audio
+
+        clipduration = clip.duration
+        min, sec = divmod(clipduration, 60)
+        logger.info(
+            f"Duration of generated clip is {clipduration:.2f} seconds or {min:.0f}:{sec:.0f}"
         )
-    )
-    if new_audioclip.duration < clipduration:
-        naudio = new_audioclip.with_effects([afx.AudioLoop(duration=clipduration)])
-    else:
-        naudio = new_audioclip.with_duration(clipduration)  # .audio_fadeout(afadeout)
+        
+        # Handle audio duration matching
+        if new_audioclip.duration < clipduration:
+            logger.debug(f"Looping audio to match video duration ({clipduration:.2f}s)")
+            naudio = new_audioclip.with_effects([afx.AudioLoop(duration=clipduration)])
+        else:
+            logger.debug(f"Truncating audio to match video duration ({clipduration:.2f}s)")
+            naudio = new_audioclip.with_duration(clipduration)
 
-    naudio = naudio.with_effects([afx.AudioFadeOut(afadeout)])
-    clip_withsound = clip.with_audio(naudio)
-    print("fps is : ", fps)
-    clip_withsound.write_videofile(
-        outfile,
-        temp_audiofile="out.m4a",
-        audio_codec="aac",
-        fps=fps,
-    )
-    clip.close()
-    return clip_withsound
+        naudio = naudio.with_effects([afx.AudioFadeOut(afadeout)])
+        clip_withsound = clip.with_audio(naudio)
+        
+        logger.info(f"Writing final video to {outfile} with fps={fps}")
+        clip_withsound.write_videofile(
+            outfile,
+            temp_audiofile="out.m4a",
+            audio_codec="aac",
+            fps=fps,
+        )
+        clip.close()
+        logger.info(f"Successfully generated video: {outfile}")
+        return clip_withsound
+        
+    except Exception as e:
+        logger.error(f"Error in generate_video_hl: {e}")
+        raise VideoProcessingError(f"Failed to generate video: {e}") from e
 
 
 def extract_beat_times(beats: np.ndarray, threshold: float) -> list[float]:
@@ -472,30 +654,49 @@ class ViztoolzPlugin:
         self.parser.set_defaults(func=self.run)
 
     def run(self, args):
-        audfiles = args.audfile
-        startats = args.startat if args.startat is not None else []
-        temp_audio_filepath = None
-
-        # Pad startats with 0.0 if it's shorter than audfiles
-        if len(startats) < len(audfiles):
-            startats.extend([0.0] * (len(audfiles) - len(startats)))
-
-        clips = []
-        for f, st in zip(audfiles, startats):
-            clip = mpy.AudioFileClip(f)
-            if st > 0:
-                clip = clip.subclipped(st)
-            clips.append(clip)
-
-        final_clip = mpy.concatenate_audioclips(clips)
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
-            final_clip.write_audiofile(temp_f.name)
-            temp_audio_filepath = temp_f.name
-
-        audfile = temp_audio_filepath
-        startat = 0.0
-
+        """Main execution method for highlights plugin."""
         try:
+            # Validate input files
+            if not os.path.exists(args.filename):
+                raise FileNotFoundError(f"Input file {args.filename} not found")
+            
+            audfiles = args.audfile
+            startats = args.startat if args.startat is not None else []
+            temp_audio_filepath = None
+
+            # Validate audio files
+            if audfiles:
+                for audfile in audfiles:
+                    if not os.path.exists(audfile):
+                        raise FileNotFoundError(f"Audio file {audfile} not found")
+
+            # Pad startats with 0.0 if it's shorter than audfiles
+            if len(startats) < len(audfiles):
+                startats.extend([0.0] * (len(audfiles) - len(startats)))
+
+            logger.info(f"Processing {len(audfiles)} audio files with start times: {startats}")
+
+            clips = []
+            for f, st in zip(audfiles, startats):
+                try:
+                    clip = mpy.AudioFileClip(f)
+                    if st > 0:
+                        clip = clip.subclipped(st)
+                    clips.append(clip)
+                    logger.debug(f"Loaded audio clip {f} with start time {st}")
+                except Exception as e:
+                    raise VideoProcessingError(f"Failed to load audio file {f}: {e}") from e
+
+            final_clip = mpy.concatenate_audioclips(clips)
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
+                final_clip.write_audiofile(temp_f.name)
+                temp_audio_filepath = temp_f.name
+                logger.debug(f"Created temporary audio file: {temp_audio_filepath}")
+
+            audfile = temp_audio_filepath
+            startat = 0.0
+
+            # Extract parameters
             threshold = args.threshold
             vtype = args.vtype
             clip_time = args.clip_time
@@ -506,58 +707,101 @@ class ViztoolzPlugin:
             skipheader = args.skipheader
             skipfooter = args.skipfooter
 
+            logger.info(f"Starting highlights generation with parameters: vtype={vtype}, threshold={threshold}, clip_time={clip_time}")
+
             # 1. Read inputs
             mov = read_orderfile(args.filename, skipheader, skipfooter)
             vdir = os.path.dirname(os.path.abspath(args.filename))
-            vdursd = {f: get_length(f) for f in mov}
-            clip_time = clip_time or len(mov) + 1
+            
+            # Validate video files
+            for video_file in mov:
+                if not os.path.exists(video_file):
+                    raise FileNotFoundError(f"Video file {video_file} not found")
+            
+            logger.info(f"Processing {len(mov)} video files")
+            
+            # Get video durations with error handling
+            vdursd = {}
+            for f in mov:
+                try:
+                    vdursd[f] = get_length(f)
+                    logger.debug(f"Video {f} duration: {vdursd[f]:.2f}s")
+                except VideoDurationError as e:
+                    logger.warning(f"Skipping video {f} due to duration error: {e}")
+                    continue
+            
+            if not vdursd:
+                raise VideoProcessingError("No valid video files found")
+            
+            clip_time = clip_time or len(vdursd) + 1
 
             # 2. Analyze audio
+            logger.info("Analyzing audio beats...")
             beats = detect_beats(audfile, startat)
             times = extract_beat_times(beats, threshold)
             durations = compute_segment_durations(times)
+            logger.debug(f"Found {len(times)} beats, {len(durations)} segments")
 
             _, new_audio = beats_clip(audfile, startat)
 
             # 3. Select clips
-            subclips = create_subclips(vtype, mov, vdursd, durations, clip_time)
+            logger.info("Selecting video clips...")
+            subclips = create_subclips(vtype, list(vdursd.keys()), vdursd, durations, clip_time)
+            logger.info(f"Generated {len(subclips)} subclips")
 
             # save json
             argsdict = copy.copy(args.__dict__)
             del argsdict["func"]
             json_file = os.path.join(vdir, "highlights.json")
             write_subclips_json(json_file, {"args": argsdict, "subclips": subclips})
-
-            # total_duration = sum(e - s for _, s, e, _ in subclips)
-            # print("Total duration of output video:", total_duration)
+            logger.debug(f"Saved subclips metadata to {json_file}")
 
             cwd = os.getcwd()
             with tempfile.TemporaryDirectory(prefix="highlights") as tempdir:
+                logger.debug(f"Working in temporary directory: {tempdir}")
                 os.chdir(tempdir)
 
-                trimmed = trim_and_get_outfiles(subclips)
-                make_video(trimmed, "combined_withffmpeg.mp4")
+                try:
+                    logger.info("Trimming video clips...")
+                    trimmed = trim_and_get_outfiles(subclips)
+                    logger.info(f"Successfully trimmed {len(trimmed)} clips")
+                    
+                    logger.info("Creating combined video...")
+                    make_video(trimmed, "combined_withffmpeg.mp4")
 
-                final_clip = mpy.VideoFileClip("combined_withffmpeg.mp4")
+                    final_clip = mpy.VideoFileClip("combined_withffmpeg.mp4")
 
-                out_name = os.path.join(
-                    vdir,
-                    f"{prefix}_{_replace_space(str(Path(audfile).stem[:10]))}_{vtype}_highlights_t_{threshold}_{clip_time}.mp4",
-                )
+                    out_name = os.path.join(
+                        vdir,
+                        f"{prefix}_{_replace_space(str(Path(audfile).stem[:10]))}_{vtype}_highlights_t_{threshold}_{clip_time}.mp4",
+                    )
 
-                generate_video_hl(
-                    [],
-                    new_audio,
-                    out_name,
-                    fps=fps,
-                    fadeout=fadeout,
-                    afadeout=afadeout,
-                    clip=final_clip,
-                )
-            os.chdir(cwd)
+                    logger.info(f"Generating final video: {out_name}")
+                    generate_video_hl(
+                        [],
+                        new_audio,
+                        out_name,
+                        fps=fps,
+                        fadeout=fadeout,
+                        afadeout=afadeout,
+                        clip=final_clip,
+                    )
+                    logger.info(f"Successfully generated highlights video: {out_name}")
+                    
+                finally:
+                    os.chdir(cwd)
+                    logger.debug(f"Restored working directory to {cwd}")
+
+        except Exception as e:
+            logger.error(f"Error in highlights generation: {e}")
+            raise
         finally:
-            if temp_audio_filepath:
-                os.remove(temp_audio_filepath)
+            if temp_audio_filepath and os.path.exists(temp_audio_filepath):
+                try:
+                    os.remove(temp_audio_filepath)
+                    logger.debug(f"Cleaned up temporary audio file: {temp_audio_filepath}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary file {temp_audio_filepath}: {e}")
 
     def hello(self, args):
         # this routine will be called when "vidtoolz "highlights is called."
@@ -692,46 +936,90 @@ class ViztoolzPluginStitch:
         self.parser.set_defaults(func=self.run)
 
     def run(self, args):
-        audfiles = args.audfile
-        startats = args.startat if args.startat is not None else []
-        temp_audio_filepath = None
-
-        # Pad startats with 0.0 if it's shorter than audfiles
-        if len(startats) < len(audfiles):
-            startats.extend([0.0] * (len(audfiles) - len(startats)))
-
-        clips = []
-        for f, st in zip(audfiles, startats):
-            clip = mpy.AudioFileClip(f)
-            if st > 0:
-                clip = clip.subclipped(st)
-            clips.append(clip)
-
-        final_clip = mpy.concatenate_audioclips(clips)
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
-            final_clip.write_audiofile(temp_f.name)
-            temp_audio_filepath = temp_f.name
-
-        audfile = temp_audio_filepath
-        startat = 0.0
-
+        """Main execution method for stitch plugin."""
         try:
+            # Validate input files
+            if not os.path.exists(args.filename):
+                raise FileNotFoundError(f"Input file {args.filename} not found")
+            
+            audfiles = args.audfile
+            startats = args.startat if args.startat is not None else []
+            temp_audio_filepath = None
+
+            # Validate audio files
+            if audfiles:
+                for audfile in audfiles:
+                    if not os.path.exists(audfile):
+                        raise FileNotFoundError(f"Audio file {audfile} not found")
+
+            # Pad startats with 0.0 if it's shorter than audfiles
+            if len(startats) < len(audfiles):
+                startats.extend([0.0] * (len(audfiles) - len(startats)))
+
+            logger.info(f"Processing {len(audfiles)} audio files with start times: {startats}")
+
+            clips = []
+            for f, st in zip(audfiles, startats):
+                try:
+                    clip = mpy.AudioFileClip(f)
+                    if st > 0:
+                        clip = clip.subclipped(st)
+                    clips.append(clip)
+                    logger.debug(f"Loaded audio clip {f} with start time {st}")
+                except Exception as e:
+                    raise VideoProcessingError(f"Failed to load audio file {f}: {e}") from e
+
+            final_clip = mpy.concatenate_audioclips(clips)
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
+                final_clip.write_audiofile(temp_f.name)
+                temp_audio_filepath = temp_f.name
+                logger.debug(f"Created temporary audio file: {temp_audio_filepath}")
+
+            audfile = temp_audio_filepath
+            startat = 0.0
+
+            # Extract parameters
             threshold = args.threshold
             howmany = args.howmany
+
+            logger.info(f"Starting stitch generation with parameters: threshold={threshold}, howmany={howmany}")
 
             # 1. Read inputs
             mov = read_orderfile(args.filename)
             vdir = os.path.dirname(os.path.abspath(args.filename))
-            vdursd = {f: get_length(f) for f in mov}
+            
+            # Validate video files
+            for video_file in mov:
+                if not os.path.exists(video_file):
+                    raise FileNotFoundError(f"Video file {video_file} not found")
+            
+            logger.info(f"Processing {len(mov)} video files")
+            
+            # Get video durations with error handling
+            vdursd = {}
+            for f in mov:
+                try:
+                    vdursd[f] = get_length(f)
+                    logger.debug(f"Video {f} duration: {vdursd[f]:.2f}s")
+                except VideoDurationError as e:
+                    logger.warning(f"Skipping video {f} due to duration error: {e}")
+                    continue
+            
+            if not vdursd:
+                raise VideoProcessingError("No valid video files found")
 
             # 2. Analyze audio
+            logger.info("Analyzing audio beats...")
             beats = detect_beats(audfile, startat)
             times = extract_beat_times(beats, threshold)
             durations = compute_segment_durations(times)
-            # durations = [1,2,3,5]
+            logger.debug(f"Found {len(times)} beats, {len(durations)} segments")
 
             # 3. Select clips
+            logger.info("Generating video cuts...")
             subclips = generate_video_cuts(vdursd, durations, howmany)
+            logger.info(f"Generated cuts for {len(subclips)} videos")
+            
             basename = os.path.basename(args.filename)
             # save json
             vtype = "linear"
@@ -740,10 +1028,22 @@ class ViztoolzPluginStitch:
             fname = f"{basename[:10]}_{Path(audfile).stem[:10]}_{vtype}_stitch_t_{threshold}_hm_{howmany}"
             json_file = os.path.join(vdir, f"{fname}.json")
             write_subclips_json(json_file, {"args": argsdict, "subclips": subclips})
+            logger.debug(f"Saved subclips metadata to {json_file}")
+            
+            logger.info("Creating final stitched video...")
             create_video_using_subclips_json(json_file)
+            logger.info(f"Successfully generated stitched video")
+            
+        except Exception as e:
+            logger.error(f"Error in stitch generation: {e}")
+            raise
         finally:
-            if temp_audio_filepath:
-                os.remove(temp_audio_filepath)
+            if temp_audio_filepath and os.path.exists(temp_audio_filepath):
+                try:
+                    os.remove(temp_audio_filepath)
+                    logger.debug(f"Cleaned up temporary audio file: {temp_audio_filepath}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary file {temp_audio_filepath}: {e}")
 
     def hello(self, args):
         # this routine will be called when "vidtoolz "highlights is called."

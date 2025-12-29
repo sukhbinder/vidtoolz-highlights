@@ -3,9 +3,10 @@ import vidtoolz_highlights as w
 import pytest
 import numpy as np
 from itertools import cycle
-from unittest.mock import patch
+from unittest.mock import patch, mock_open
 from argparse import ArgumentParser
 import builtins
+import os
 
 
 @pytest.fixture
@@ -327,3 +328,51 @@ def test_trim_skips_missing_files(
 ):
     output = w.trim_and_get_outfiles_for_coninous(subclips)
     assert output == []  # os.path.exists always returns False
+
+
+# --- Tests for error handling ---
+@patch("subprocess.run")
+def test_get_length_ffprobe_failure(mock_run):
+    """Test that get_length falls back to moviepy when ffprobe fails."""
+    mock_run.side_effect = Exception("ffprobe not found")
+    
+    with patch("moviepy.VideoFileClip") as mock_clip:
+        mock_instance = mock_clip.return_value.__enter__.return_value
+        mock_instance.duration = 123.45
+        
+        result = w.get_length("test.mp4")
+        assert result == 123.45
+        mock_run.assert_called_once()
+
+
+@patch("subprocess.run")
+def test_get_length_both_methods_fail(mock_run):
+    """Test that get_length raises VideoDurationError when both methods fail."""
+    mock_run.side_effect = Exception("ffprobe not found")
+    
+    with patch("moviepy.VideoFileClip") as mock_clip:
+        mock_clip.side_effect = Exception("moviepy error")
+        
+        with pytest.raises(w.VideoDurationError):
+            w.get_length("test.mp4")
+
+
+def test_get_length_negative_duration():
+    """Test that get_length raises ValueError for negative duration."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.stdout = "-5.0"
+        
+        with pytest.raises(w.VideoDurationError):
+            w.get_length("test.mp4")
+
+
+def test_file_not_found_error():
+    """Test that FileNotFoundError is raised for missing files."""
+    with pytest.raises(w.FileNotFoundError):
+        raise w.FileNotFoundError("test.mp4 not found")
+
+
+def test_video_processing_error():
+    """Test that VideoProcessingError is raised for processing failures."""
+    with pytest.raises(w.VideoProcessingError):
+        raise w.VideoProcessingError("processing failed")
