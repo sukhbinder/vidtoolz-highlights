@@ -1001,12 +1001,14 @@ class ViztoolzPluginStitch:
             )
 
             clips = []
+            nameprefix = ""
             for f, st in zip(audfiles, startats):
                 try:
                     clip = mpy.AudioFileClip(f)
                     if st > 0:
                         clip = clip.subclipped(st)
                     clips.append(clip)
+                    nameprefix = nameprefix + os.path.basename(f)[:10].replace(" ", "_")
                     logger.debug(f"Loaded audio clip {f} with start time {st}")
                 except Exception as e:
                     raise VideoProcessingError(
@@ -1014,7 +1016,9 @@ class ViztoolzPluginStitch:
                     ) from e
 
             final_clip = mpy.concatenate_audioclips(clips)
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
+            with tempfile.NamedTemporaryFile(
+                prefix=f"{nameprefix}", suffix=".mp3", delete=False
+            ) as temp_f:
                 final_clip.write_audiofile(temp_f.name)
                 temp_audio_filepath = temp_f.name
                 logger.debug(f"Created temporary audio file: {temp_audio_filepath}")
