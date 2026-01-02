@@ -1008,7 +1008,7 @@ class ViztoolzPluginStitch:
                     if st > 0:
                         clip = clip.subclipped(st)
                     clips.append(clip)
-                    nameprefix = nameprefix + f[:10].replace(" ", "_")
+                    nameprefix = nameprefix + os.path.basename(f)[:10].replace(" ", "_")
                     logger.debug(f"Loaded audio clip {f} with start time {st}")
                 except Exception as e:
                     raise VideoProcessingError(
