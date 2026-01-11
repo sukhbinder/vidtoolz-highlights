@@ -15,6 +15,9 @@ import numpy as np
 import vidtoolz
 from moviepy import afx, vfx
 from vidtoolz_beats import detect_beats
+import imageio_ffmpeg
+
+FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
 
 # Configure logging
 logging.basicConfig(
@@ -488,19 +491,9 @@ def trim_by_ffmpeg(inputfile, starttime, endtime, outputfile, duration=None):
 
     try:
         if duration is not None:
-            cmdline = "ffmpeg -y -ss {starttime:0.4f} -i {inputfile} -t {duration:0.4f} -c copy {outputfile}".format(
-                starttime=float(starttime),
-                inputfile=inputfile,
-                duration=float(duration),
-                outputfile=outputfile,
-            )
+            cmdline = f"{FFMPEG_EXE} -y -ss {float(starttime):0.4f} -i {inputfile} -t {float(duration):0.4f} -c copy {outputfile}"
         else:
-            cmdline = "ffmpeg -y -ss {starttime:0.4f} -i {inputfile} -to {endtime:0.4f} -map 0 -vcodec copy -acodec copy  {outputfile}".format(
-                starttime=float(starttime),
-                inputfile=inputfile,
-                endtime=float(endtime),
-                outputfile=outputfile,
-            )
+            cmdline = f"{FFMPEG_EXE} -y -ss {float(starttime):0.4f} -i {inputfile} -to {float(endtime):0.4f} -map 0 -vcodec copy -acodec copy  {outputfile}"
 
         logger.debug(f"Executing ffmpeg command: {cmdline}")
         cmdlist = cmdline.split()
@@ -563,13 +556,13 @@ def make_video(files: List[str], fname: str) -> int:
     for f in files:
         if f.endswith("_s.mp4"):
             outf = "{0}-s.mp4".format(f)
-            cmdline = "ffmpeg -i {0} -an -filter:v 'setpts=2.0*PTS' {1}".format(f, outf)
+            cmdline = f"{FFMPEG_EXE} -i {f} -an -filter:v 'setpts=2.0*PTS' {outf}"
             logger.debug(f"Executing: {cmdline}")
             iret = os.system(cmdline)
             sfiles.append(outf)
         else:
             outf = "{0}-ns.mp4".format(f)
-            cmdline = "ffmpeg -i {0} -an -c:v copy {1}".format(f, outf)
+            cmdline = f"{FFMPEG_EXE} -i {f} -an -c:v copy {outf}"
             iret = os.system(cmdline)
             sfiles.append(outf)
 
@@ -577,7 +570,7 @@ def make_video(files: List[str], fname: str) -> int:
         for f in sfiles:
             if os.path.exists(f):
                 fout.write("file '{}'\n".format(f))
-    cmdline = "ffmpeg -f concat -safe 0 -i {0} -c copy {1}".format(out_file, fname)
+    cmdline = f"{FFMPEG_EXE} -f concat -safe 0 -i {out_file} -c copy {fname}"
     logger.debug(f"Executing: {cmdline}")
     iret = os.system(cmdline)
     logger.info(f"Combined {len(files)} videos into {fname}")
@@ -638,7 +631,7 @@ def generate_video_hl(
         naudio = naudio.with_effects([afx.AudioFadeOut(afadeout)])
         clip_withsound = clip.with_audio(naudio)
         # Apply fadeout
-        clip = clip.with_effects([vfx.FadeOut(fadeout)])
+        clip_withsound = clip_withsound.with_effects([vfx.FadeOut(fadeout)])
         logger.info(f"Writing final video to {outfile} with fps={fps}")
         clip_withsound.write_videofile(
             outfile,
@@ -657,6 +650,7 @@ def generate_video_hl(
 
 def extract_beat_times(beats: np.ndarray, threshold: float) -> list[float]:
     """Filter beat times based on threshold."""
+    beats = np.array(beats)
     return beats[beats[:, 1] >= threshold, 0].tolist()
 
 
@@ -783,7 +777,7 @@ class ViztoolzPlugin:
 
             # 2. Analyze audio
             logger.info("Analyzing audio beats...")
-            beats = detect_beats(audfile, startat)
+            beats = detect_beats(audfile)
             times = extract_beat_times(beats, threshold)
             durations = compute_segment_durations(times)
             logger.debug(f"Found {len(times)} beats, {len(durations)} segments")
@@ -1078,7 +1072,7 @@ class ViztoolzPluginStitch:
 
             # 2. Analyze audio
             logger.info("Analyzing audio beats...")
-            beats = detect_beats(audfile, startat)
+            beats = detect_beats(audfile)
             times = extract_beat_times(beats, threshold)
             durations = compute_segment_durations(times)
             logger.debug(f"Found {len(times)} beats, {len(durations)} segments")
