@@ -1,0 +1,67 @@
+{
+    "args": {
+        "filename": "/app/tests/test_data/orderfiles.txt",
+        "output": "/tmp/pytest-of-jules/pytest-3/test_realcase_stitch0/test_stitch.mp4",
+        "threshold": -0.1,
+        "prefix": "IMG",
+        "fps": 60,
+        "fadeout": 1.0,
+        "afadeout": 2.0,
+        "debug": false,
+        "audfile": "/tmp/wild.mp35o1owd7x.mp3",
+        "startat": 0.0,
+        "howmany": 3,
+        "orgaudfile": [
+            "/app/tests/test_data/wild.mp3"
+        ],
+        "orgstartat": null
+    },
+    "subclips": {
+        "/app/tests/test_data/IMG_5654.MOV": [
+            [
+                0.8805157907857057,
+                1.3681348384047534
+            ],
+            [
+                2.3536933350053757,
+                2.8180924279758974
+            ]
+        ],
+        "/app/tests/test_data/5034.mp4": [
+            [
+                0.866495851078256,
+                1.3541148986973037
+            ]
+        ],
+        "/app/tests/test_data/5052.mp4": [
+            [
+                0.9101866204713782,
+                1.3978056680904258
+            ],
+            [
+                2.2617363001897175,
+                2.7261353931602392
+            ]
+        ],
+        "/app/tests/test_data/6224.mp4": [
+            [
+                0.5478981690595147,
+                1.0355172166785622
+            ],
+            [
+                1.7305921013362462,
+                2.194991194306768
+            ],
+            [
+                2.740053718168922,
+                2.9
+            ]
+        ],
+        "/app/tests/test_data/7179.mp4": [
+            [
+                0.7911215832473304,
+                1.278740630866378
+            ]
+        ]
+    }
+}
