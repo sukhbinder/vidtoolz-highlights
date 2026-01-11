@@ -12,6 +12,9 @@ import pytest
 
 import vidtoolz_highlights as w
 
+IN_GITHUB_ACTIONS = os.getenv("GITHUB_ACTIONS") == "true"
+
+
 
 @pytest.fixture
 def subparsers():
@@ -460,7 +463,7 @@ def test_integration_stitch(tmpdir):
 
     print("Integration test passed - core functionality works")
 
-
+@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="Test doesn't work in Github Actions.")
 def test_realcase_highlights(tmpdir):
     outfile = tmpdir / "test.mp4"
     testdata = Path(__file__).parent / "test_data"
@@ -474,7 +477,7 @@ def test_realcase_highlights(tmpdir):
     w.highlights_plugin.run(args)
     assert outfile.exists()
 
-
+@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="Test doesn't work in Github Actions.")
 def test_realcase_stitch(tmpdir):
     outfile = tmpdir / "test_stitch.mp4"
     testdata = Path(__file__).parent / "test_data"
