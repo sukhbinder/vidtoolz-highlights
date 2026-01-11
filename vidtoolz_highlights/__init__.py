@@ -58,6 +58,9 @@ def create_parser2(subparser):
 
     parser.add_argument("filename", type=str, help="File containing the list of files")
     parser.add_argument(
+        "-o", "--output", default=None, type=str, help="Output file name"
+    )
+    parser.add_argument(
         "-t",
         "--threshold",
         type=float,
@@ -128,6 +131,9 @@ def create_parser(subparser):
     )
     # Add subprser arguments here.
     parser.add_argument("filename", type=str, help="File containing the list of files")
+    parser.add_argument(
+        "-o", "--output", default=None, type=str, help="Output file name"
+    )
     parser.add_argument(
         "-ct",
         "--clip-time",
@@ -602,7 +608,6 @@ def generate_video_hl(
         if clip is None:
             logger.debug("Concatenating video clips")
             clip = mpy.concatenate_videoclips(vc, method="compose")
-            clip = clip.with_effects([vfx.FadeOut(fadeout)])
 
         # Extract audio from video clip
         try:
@@ -612,6 +617,7 @@ def generate_video_hl(
         except Exception as ex:
             logger.warning(f"Failed to extract audio: {ex}")
             # Continue without extracted audio
+            pass
 
         clipduration = clip.duration
         min, sec = divmod(clipduration, 60)
@@ -631,7 +637,8 @@ def generate_video_hl(
 
         naudio = naudio.with_effects([afx.AudioFadeOut(afadeout)])
         clip_withsound = clip.with_audio(naudio)
-
+        # Apply fadeout
+        clip = clip.with_effects([vfx.FadeOut(fadeout)])
         logger.info(f"Writing final video to {outfile} with fps={fps}")
         clip_withsound.write_videofile(
             outfile,
@@ -706,12 +713,14 @@ class ViztoolzPlugin:
             )
 
             clips = []
+            nameprefix = ""
             for f, st in zip(audfiles, startats):
                 try:
                     clip = mpy.AudioFileClip(f)
                     if st > 0:
                         clip = clip.subclipped(st)
                     clips.append(clip)
+                    nameprefix = nameprefix + os.path.basename(f)[:10].replace(" ", "_")
                     logger.debug(f"Loaded audio clip {f} with start time {st}")
                 except Exception as e:
                     raise VideoProcessingError(
@@ -719,7 +728,9 @@ class ViztoolzPlugin:
                     ) from e
 
             final_clip = mpy.concatenate_audioclips(clips)
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_f:
+            with tempfile.NamedTemporaryFile(
+                prefix=nameprefix, suffix=".mp3", delete=False
+            ) as temp_f:
                 final_clip.write_audiofile(temp_f.name)
                 temp_audio_filepath = temp_f.name
                 logger.debug(f"Created temporary audio file: {temp_audio_filepath}")
@@ -737,6 +748,8 @@ class ViztoolzPlugin:
             prefix = args.prefix
             skipheader = args.skipheader
             skipfooter = args.skipfooter
+
+            outputfilename = args.output
 
             logger.info(
                 f"Starting highlights generation with parameters: vtype={vtype}, threshold={threshold}, clip_time={clip_time}"
@@ -806,10 +819,12 @@ class ViztoolzPlugin:
 
                     final_clip = mpy.VideoFileClip("combined_withffmpeg.mp4")
 
-                    out_name = os.path.join(
-                        vdir,
-                        f"{prefix}_{_replace_space(str(Path(audfile).stem[:10]))}_{vtype}_highlights_t_{threshold}_{clip_time}.mp4",
-                    )
+                    out_name = outputfilename
+                    if outputfilename is None:
+                        out_name = os.path.join(
+                            vdir,
+                            f"{prefix}_{_replace_space(str(Path(audfile).stem[:10]))}_{vtype}_highlights_t_{threshold}_{clip_time}.mp4",
+                        )
 
                     logger.info(f"Generating final video: {out_name}")
                     generate_video_hl(
@@ -938,9 +953,12 @@ def create_video_using_subclips_json(subclips, out_name=None):
     prefix = args.get("prefix", "IMG")
     threshold = args.get("threshold", 0.3)
     howmany = args.get("howmany", 5)
+    outputfilename = args.get("output", None)
 
-    fname = f"{_replace_space(basename[:10])}_{prefix}_{_replace_space(str(Path(audfile).stem[:10]))}_{vtype}_stitch_t_{threshold}_hm_{howmany}"
-    out_name = os.path.join(vdir, f"{fname}.mp4")
+    out_name = outputfilename
+    if outputfilename is None:
+        fname = f"{_replace_space(basename[:10])}_{prefix}_{_replace_space(str(Path(audfile).stem[:10]))}_{vtype}_stitch_t_{threshold}_hm_{howmany}"
+        out_name = os.path.join(vdir, f"{fname}.mp4")
 
     cwd = os.getcwd()
     _, new_audio = beats_clip(audfile, startat)

@@ -4,6 +4,7 @@ import subprocess
 import sys
 from argparse import ArgumentParser
 from itertools import cycle
+from pathlib import Path
 from unittest.mock import mock_open, patch
 
 import numpy as np
@@ -387,31 +388,33 @@ def test_integration_highlights(tmpdir):
     audio1 = os.path.join(testdata, "wild.mp3")
     audio2 = os.path.join(testdata, "MalgudiDays.mp3")
     mp4files = os.path.join(testdata, "orderfiles.txt")
-    
+
     # Test that files exist and are accessible
     assert os.path.exists(mp4files), f"Order file not found: {mp4files}"
     assert os.path.exists(audio1), f"Audio file 1 not found: {audio1}"
     assert os.path.exists(audio2), f"Audio file 2 not found: {audio2}"
-    
+
     # Test that we can read the order file
-    with open(mp4files, 'r') as f:
+    with open(mp4files, "r") as f:
         video_files = f.readlines()
     assert len(video_files) > 0, "No video files in order file"
-    
+
     # Test that video files exist
-    video_paths = [os.path.join(os.path.dirname(mp4files), f.strip()) for f in video_files]
+    video_paths = [
+        os.path.join(os.path.dirname(mp4files), f.strip()) for f in video_files
+    ]
     for video_path in video_paths:
         assert os.path.exists(video_path), f"Video file not found: {video_path}"
-    
+
     # Test core functionality: read_orderfile
     mov = w.read_orderfile(mp4files)
     assert len(mov) > 0, "No video files read from order file"
-    
+
     # Test core functionality: get_length for one video
     sample_video = mov[0]
     duration = w.get_length(sample_video)
     assert duration > 0, f"Video duration is not positive: {duration}"
-    
+
     print("Integration test passed - core functionality works")
 
 
@@ -421,36 +424,66 @@ def test_integration_stitch(tmpdir):
     audio1 = os.path.join(testdata, "wild.mp3")
     audio2 = os.path.join(testdata, "MalgudiDays.mp3")
     mp4files = os.path.join(testdata, "orderfiles.txt")
-    
+
     # Test that files exist and are accessible
     assert os.path.exists(mp4files), f"Order file not found: {mp4files}"
     assert os.path.exists(audio1), f"Audio file 1 not found: {audio1}"
     assert os.path.exists(audio2), f"Audio file 2 not found: {audio2}"
-    
+
     # Test that we can read the order file
-    with open(mp4files, 'r') as f:
+    with open(mp4files, "r") as f:
         video_files = f.readlines()
     assert len(video_files) > 0, "No video files in order file"
-    
+
     # Test that video files exist
-    video_paths = [os.path.join(os.path.dirname(mp4files), f.strip()) for f in video_files]
+    video_paths = [
+        os.path.join(os.path.dirname(mp4files), f.strip()) for f in video_files
+    ]
     for video_path in video_paths:
         assert os.path.exists(video_path), f"Video file not found: {video_path}"
-    
+
     # Test core functionality: read_orderfile
     mov = w.read_orderfile(mp4files)
     assert len(mov) > 0, "No video files read from order file"
-    
+
     # Test core functionality: get_length for one video
     sample_video = mov[0]
     duration = w.get_length(sample_video)
     assert duration > 0, f"Video duration is not positive: {duration}"
-    
+
     # Test stitch-specific functionality: generate_video_cuts
     video_dict = {sample_video: duration}
     intervals = [2.0, 3.0]
     cuts = w.generate_video_cuts(video_dict, intervals, max_cuts=3)
     assert sample_video in cuts, "No cuts generated for sample video"
     assert len(cuts[sample_video]) > 0, "No cuts generated"
-    
+
     print("Integration test passed - core functionality works")
+
+
+def test_realcase_highlights(tmpdir):
+    outfile = tmpdir / "test.mp4"
+    testdata = Path(__file__).parent / "test_data"
+    txtfile = testdata / "orderfiles.txt"
+    audfile = testdata / "wild.mp3"
+    argv = [str(txtfile), "-aaf", str(audfile), "-st", "45", "-sh", "2", "-o", str(outfile)]
+    subparser = ArgumentParser().add_subparsers()
+    parser = w.create_parser(subparser)
+    args = parser.parse_args(argv)
+    args.func = None
+    w.highlights_plugin.run(args)
+    assert outfile.exists()
+
+
+def test_realcase_stitch(tmpdir):
+    outfile = tmpdir / "test_stitch.mp4"
+    testdata = Path(__file__).parent / "test_data"
+    txtfile = testdata / "orderfiles.txt"
+    audfile = testdata / "wild.mp3"
+    argv = [str(txtfile), "-aaf", str(audfile), "-hm", "3","--fadeout","1","-t","-0.1", "-o", str(outfile)]
+    subparser = ArgumentParser().add_subparsers()
+    parser = w.create_parser2(subparser)
+    args = parser.parse_args(argv)
+    args.func = None
+    w.stitch_plugin.run(args)
+    assert outfile.exists()
