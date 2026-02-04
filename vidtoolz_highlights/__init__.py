@@ -15,6 +15,11 @@ import numpy as np
 import vidtoolz
 from moviepy import afx, vfx
 from vidtoolz_beats import detect_beats
+import re
+
+def sanitize_string(text: str) -> str:
+    text = text.replace(" ", "_").strip()
+    return re.sub(r"[^A-Za-z0-9._-]", "", text)
 
 # Configure logging
 logging.basicConfig(
@@ -745,7 +750,7 @@ class ViztoolzPlugin:
             fps = args.fps
             fadeout = args.fadeout
             afadeout = args.afadeout
-            prefix = args.prefix
+            prefix = sanitize_string(args.prefix)
             skipheader = args.skipheader
             skipfooter = args.skipfooter
 
@@ -950,7 +955,7 @@ def create_video_using_subclips_json(subclips, out_name=None):
     fadeout = args.get("fadeout", 0)
     afadeout = args.get("afadeout", 0)
     vtype = args.get("vtype", "L")
-    prefix = args.get("prefix", "IMG")
+    prefix = sanitize_string(args.get("prefix", "IMG"))
     threshold = args.get("threshold", 0.3)
     howmany = args.get("howmany", 5)
     outputfilename = args.get("output", None)
