@@ -17,9 +17,11 @@ from moviepy import afx, vfx
 from vidtoolz_beats import detect_beats
 import re
 
+
 def sanitize_string(text: str) -> str:
     text = text.replace(" ", "_").strip()
     return re.sub(r"[^A-Za-z0-9._-]", "", text)
+
 
 # Configure logging
 logging.basicConfig(
@@ -233,7 +235,9 @@ def read_orderfile(fname, skipheader=0, skipfooter=0):
     else:
         files = files[skipheader:-skipfooter]
 
-    mov = [os.path.join(fdir, f.strip()) for f in files]
+    mov = [
+        os.path.join(fdir, f.strip()) for f in files if not f.strip().startswith("#")
+    ]
     return mov
 
 
