@@ -647,7 +647,7 @@ def generate_video_hl(
         naudio = naudio.with_effects([afx.AudioFadeOut(afadeout)])
         clip_withsound = clip.with_audio(naudio)
         # Apply fadeout
-        clip = clip.with_effects([vfx.FadeOut(fadeout)])
+        clip_withsound = clip_withsound.with_effects([vfx.FadeOut(fadeout)])
         logger.info(f"Writing final video to {outfile} with fps={fps}")
         clip_withsound.write_videofile(
             outfile,
