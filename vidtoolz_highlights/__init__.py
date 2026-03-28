@@ -101,6 +101,13 @@ def create_parser2(subparser):
         default=2.0,
     )
     parser.add_argument(
+        "-afi",
+        "--afadein",
+        type=float,
+        help="Audio Fadein (default: %(default)s)",
+        default=1.0,
+    )
+    parser.add_argument(
         "-d", "--debug", help="Debug this (default: %(default)s)", action="store_true"
     )
 
@@ -188,7 +195,13 @@ def create_parser(subparser):
         help="Audio fadeout (default: %(default)s)",
         default=2.0,
     )
-
+    parser.add_argument(
+        "-afi",
+        "--afadein",
+        type=float,
+        help="Audio Fadein (default: %(default)s)",
+        default=1.0,
+    )
     parser.add_argument(
         "-aaf",
         "--audfile",
@@ -594,7 +607,7 @@ def make_video(files: List[str], fname: str) -> int:
 
 
 def generate_video_hl(
-    vc, new_audioclip, outfile, fps=30, fadeout=1, afadeout=2, clip=None
+    vc, new_audioclip, outfile, fps=30, fadeout=1, afadeout=2, clip=None, afadein=1
 ):
     """Generate final video with highlights and audio.
 
@@ -605,6 +618,7 @@ def generate_video_hl(
         fps: Frames per second
         fadeout: Video fadeout duration
         afadeout: Audio fadeout duration
+        afadein: Audio fadein duration
         clip: Optional pre-made video clip
 
     Returns:
@@ -644,7 +658,9 @@ def generate_video_hl(
             )
             naudio = new_audioclip.with_duration(clipduration)
 
-        naudio = naudio.with_effects([afx.AudioFadeOut(afadeout)])
+        naudio = naudio.with_effects(
+            [afx.AudioFadeOut(afadeout), afx.AudioFadeIn(afadein)]
+        )
         clip_withsound = clip.with_audio(naudio)
         # Apply fadeout
         clip_withsound = clip_withsound.with_effects([vfx.FadeOut(fadeout)])
@@ -754,6 +770,7 @@ class ViztoolzPlugin:
             fps = args.fps
             fadeout = args.fadeout
             afadeout = args.afadeout
+            afadein = args.afadein
             prefix = sanitize_string(args.prefix)
             skipheader = args.skipheader
             skipfooter = args.skipfooter
@@ -844,6 +861,7 @@ class ViztoolzPlugin:
                         fadeout=fadeout,
                         afadeout=afadeout,
                         clip=final_clip,
+                        afadein=afadein,
                     )
                     logger.info(f"Successfully generated highlights video: {out_name}")
 
@@ -957,7 +975,8 @@ def create_video_using_subclips_json(subclips, out_name=None):
     startat = args.get("startat", 0.0)
     fps = args.get("fps", 30)
     fadeout = args.get("fadeout", 0)
-    afadeout = args.get("afadeout", 0)
+    afadeout = args.get("afadeout", 1)
+    afadein = args.get("afadein", 1)
     vtype = args.get("vtype", "L")
     prefix = sanitize_string(args.get("prefix", "IMG"))
     threshold = args.get("threshold", 0.3)
@@ -987,6 +1006,7 @@ def create_video_using_subclips_json(subclips, out_name=None):
             fadeout=fadeout,
             afadeout=afadeout,
             clip=final_clip,
+            afadein=afadein,
         )
     os.chdir(cwd)
 
