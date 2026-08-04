@@ -10,7 +10,7 @@ classifiers = [
 ]
 dependencies = [
     "vidtoolz",
-    "vidtoolz-beats"
+    "vidtoolz-beats==0.1.1"
 ]
 
 [project.urls]
