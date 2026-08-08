@@ -33,7 +33,7 @@ usage: vid highlights [-h] [-ct CLIP_TIME] [-t THRESHOLD] [-vt {L,NL}]
 Make highlights from videos
 
 positional arguments:
-  filename              File containing the list of files
+  filename              File(s) containing the list of files (can specify multiple)
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -68,7 +68,7 @@ usage: vid stitch [-h] [-t THRESHOLD] [-p PREFIX] [-fps FPS] [-foout FADEOUT]
 Stitch videos using music
 
 positional arguments:
-  filename              File containing the list of files
+  filename              File(s) containing the list of files (can specify multiple)
 
 optional arguments:
   -h, --help            show this help message and exit

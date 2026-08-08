@@ -144,7 +144,7 @@ def create_parser(subparser):
         "highlights", description="Make highlights from videos"
     )
     # Add subprser arguments here.
-    parser.add_argument("filename", type=str, help="File containing the list of files")
+    parser.add_argument("filename", type=str, nargs="+", help="File(s) containing the list of files")
     parser.add_argument(
         "-o", "--output", default=None, type=str, help="Output file name"
     )
@@ -717,8 +717,9 @@ class ViztoolzPlugin:
         temp_audio_filepath = None
         try:
             # Validate input files
-            if not os.path.exists(args.filename):
-                raise FileNotFoundError(f"Input file {args.filename} not found")
+            for fname in args.filename:
+                if not os.path.exists(fname):
+                    raise FileNotFoundError(f"Input file {fname} not found")
 
             audfiles = args.audfile
             startats = args.startat if args.startat is not None else []
@@ -781,9 +782,16 @@ class ViztoolzPlugin:
                 f"Starting highlights generation with parameters: vtype={vtype}, threshold={threshold}, clip_time={clip_time}"
             )
 
-            # 1. Read inputs
-            mov = read_orderfile(args.filename, skipheader, skipfooter)
-            vdir = os.path.dirname(os.path.abspath(args.filename))
+            # 1. Read inputs from all order files
+            mov = []
+            vdir = None
+            for fname in args.filename:
+                if not os.path.exists(fname):
+                    raise FileNotFoundError(f"Input file {fname} not found")
+                file_mov = read_orderfile(fname, skipheader, skipfooter)
+                mov.extend(file_mov)
+                if vdir is None:
+                    vdir = os.path.dirname(os.path.abspath(fname))
 
             # Validate video files
             for video_file in mov:

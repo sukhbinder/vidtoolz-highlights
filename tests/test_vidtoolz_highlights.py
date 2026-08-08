@@ -80,7 +80,7 @@ def test_create_parser_required_and_defaults(subparsers):
     parser = w.create_parser(subparsers)
     args = parser.parse_args(["myfile.txt"])
 
-    assert args.filename == "myfile.txt"
+    assert args.filename == ["myfile.txt"]
     assert args.clip_time is None
     assert args.threshold == -0.1
     assert args.vtype == "NL"
@@ -120,7 +120,7 @@ def test_create_parser_with_all_args(subparsers):
         ]
     )
 
-    assert args.filename == "myfile.txt"
+    assert args.filename == ["myfile.txt"]
     assert args.clip_time == 5
     assert args.threshold == 0.6
     assert args.vtype == "NL"
@@ -471,6 +471,21 @@ def test_realcase_highlights(tmpdir):
     txtfile = testdata / "orderfiles.txt"
     audfile = testdata / "wild.mp3"
     argv = [str(txtfile), "-aaf", str(audfile), "-st", "45", "-sh", "2", "-o", str(outfile)]
+    subparser = ArgumentParser().add_subparsers()
+    parser = w.create_parser(subparser)
+    args = parser.parse_args(argv)
+    args.func = None
+    w.highlights_plugin.run(args)
+    assert outfile.exists()
+
+@pytest.mark.skipif(IN_GITHUB_ACTIONS, reason="Test doesn't work in Github Actions.")
+def test_realcase_highlights_multiplefiles(tmpdir):
+    outfile = tmpdir / "test.mp4"
+    testdata = Path(__file__).parent / "test_data"
+    txtfile = testdata / "orderfiles.txt"
+    txtfile2 = testdata / "one"/ "orderfiles.txt"
+    audfile = testdata / "wild.mp3"
+    argv = [str(txtfile), str(txtfile2), "-aaf", str(audfile), "-st", "45", "-sh", "2", "-o", str(outfile)]
     subparser = ArgumentParser().add_subparsers()
     parser = w.create_parser(subparser)
     args = parser.parse_args(argv)
