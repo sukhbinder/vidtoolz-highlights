@@ -599,7 +599,15 @@ def make_video(files: List[str], fname: str) -> int:
         for f in sfiles:
             if os.path.exists(f):
                 fout.write("file '{}'\n".format(f))
-    cmdline = "ffmpeg -f concat -safe 0 -i {0} -c copy {1}".format(out_file, fname)
+    # Stream-copying the concat can preserve gaps/overlapping timestamps from
+    # independently trimmed clips. In particular, the final packet duration
+    # may be overstated, making the last frame appear frozen while the audio
+    # continues. Regenerate timestamps and encode the joined video so its
+    # timeline is continuous before MoviePy writes the final audio/video file.
+    cmdline = (
+        "ffmpeg -y -fflags +genpts -f concat -safe 0 -i {0} "
+        "-an -fps_mode vfr -c:v libx264 -pix_fmt yuv420p {1}"
+    ).format(out_file, fname)
     logger.debug(f"Executing: {cmdline}")
     iret = os.system(cmdline)
     logger.info(f"Combined {len(files)} videos into {fname}")
